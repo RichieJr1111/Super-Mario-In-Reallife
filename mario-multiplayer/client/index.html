@@ -1,13 +1,157 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>client</title>
-  </head>
-  <body>
-    <div id="app"></div>
-    <script type="module" src="/src/main.js"></script>
-  </body>
+
+<head>
+  <meta charset="UTF-8" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Super Mario Multiplayer</title>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+</head>
+
+<body>
+  <div id="ui-layer">
+    <!-- Title Screen -->
+    <div id="title-screen" class="screen active">
+      <div class="mario-logo">
+        <span class="word-super">SUPER</span>
+        <span class="word-mario">MARIO</span>
+        <span class="word-multi">MULTIPLAYER</span>
+      </div>
+
+      <div class="menu-options">
+        <button id="btn-singleplayer" class="mario-btn">SINGLE PLAYER GAME</button>
+        <button id="btn-multiplayer" class="mario-btn">MULTIPLAYER GAME</button>
+        <button id="btn-leaderboard" class="mario-btn">LEADERBOARD</button>
+        <button id="btn-settings" class="mario-btn">SETTINGS</button>
+      </div>
+
+      <!-- Classic Hills and Ground -->
+      <div class="retro-bg-elements">
+        <div class="hill hill-large"></div>
+        <div class="hill hill-small"></div>
+        <div class="ground"></div>
+      </div>
+
+      <div class="footer-info">© 2026 A-Team-Geckos</div>
+    </div>
+
+    <!-- Lobby List Screen -->
+    <div id="lobby-screen" class="screen">
+      <h2 class="retro-title">SELECT LOBBY</h2>
+      <div id="lobby-list-container">
+        <table id="lobby-table">
+          <thead>
+            <tr>
+              <th>NAME</th>
+              <th>MODE</th>
+              <th>PLAYERS</th>
+              <th>ACTION</th>
+            </tr>
+          </thead>
+          <tbody id="lobby-list">
+            <!-- Lobbies will be injected here -->
+          </tbody>
+        </table>
+      </div>
+      <div class="lobby-actions">
+        <button id="btn-create-lobby-open" class="mario-btn secondary">CREATE NEW</button>
+        <button id="btn-back-to-title" class="mario-btn secondary">BACK</button>
+      </div>
+    </div>
+
+    <!-- Leaderboard Screen -->
+    <div id="leaderboard-screen" class="screen">
+      <h2 class="retro-title">TOP TIMES</h2>
+      <div id="leaderboard-container">
+        <table id="leaderboard-table">
+          <thead>
+            <tr>
+              <th>RANK</th>
+              <th>PLAYER</th>
+              <th>TIME</th>
+            </tr>
+          </thead>
+          <tbody id="leaderboard-list">
+            <!-- Data will be injected here -->
+          </tbody>
+        </table>
+      </div>
+      <div class="lobby-actions">
+        <button id="btn-back-to-title-lb" class="mario-btn secondary">BACK</button>
+      </div>
+    </div>
+
+    <!-- Create Lobby Modal -->
+    <div id="create-modal" class="modal">
+      <div class="modal-content mario-card">
+        <h3 class="retro-title">NEW LOBBY</h3>
+        <div class="input-group">
+          <label>NAME:</label>
+          <input type="text" id="lobby-name-input" placeholder="LOBBY NAME" maxlength="15">
+        </div>
+        <div class="input-group">
+          <label>MODE:</label>
+          <select id="lobby-mode-select">
+            <option value="Co-op">CO-OP</option>
+            <option value="PvP">PVP</option>
+            <option value="Chaos">CHAOS</option>
+          </select>
+        </div>
+        <div class="modal-actions">
+          <button id="btn-create-lobby-confirm" class="mario-btn">CREATE</button>
+          <button id="btn-close-modal" class="mario-btn secondary">CANCEL</button>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Settings Modal (Placeholder) -->
+    <div id="settings-modal" class="modal">
+      <div class="modal-content mario-card">
+        <h3 class="retro-title">SETTINGS</h3>
+        <p style="font-size: 12px; margin-bottom: 20px; line-height: 1.6;">FUTURE UPDATES WILL INCLUDE:</p>
+        <ul style="text-align: left; font-size: 11px; list-style: square; margin-bottom: 30px; line-height: 2;">
+          <li>ART & SPRITES</li>
+          <li>MUSIC & SFX</li>
+          <li>CONTROLS</li>
+          <li>DIFFICULTY</li>
+        </ul>
+        <div class="modal-actions">
+          <button id="btn-close-settings" class="mario-btn">CLOSE</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- In-Game Menu Modal -->
+    <div id="game-menu-modal" class="modal">
+      <div class="modal-content mario-card">
+        <h3 class="retro-title">PAUSED</h3>
+        <div class="menu-options" style="gap: 15px;">
+          <button id="btn-resume-game" class="mario-btn">RESUME</button>
+          <button id="btn-settings-in-game" class="mario-btn">SETTINGS</button>
+          <button id="btn-quit-to-menu" class="mario-btn secondary">QUIT TO MENU</button>
+        </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- HUD Layer -->
+  <div id="hud-layer">
+    <div id="timer-display" class="in-game-ui">
+      <div class="timer-item">
+        <span class="label">TIME</span>
+        <span id="current-time">00:00.00</span>
+      </div>
+      <div class="timer-item best">
+        <span class="label">BEST</span>
+        <span id="best-time">--:--.--</span>
+      </div>
+    </div>
+  </div>
+
+  <div id="app"></div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+
 </html>
