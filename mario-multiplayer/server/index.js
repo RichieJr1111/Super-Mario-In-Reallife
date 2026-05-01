@@ -86,7 +86,7 @@ function createLobby(id, name = 'Room', mode = 'Co-op', hostId = null) {
         levelIsRestarting: false,
         currentLevel: initialLevel,
         builtMaps: { [initialLevel]: buildLevel(initialLevel) },
-        spawnedLevels: new Set([initialLevel]) // Track which levels have had initial enemies spawned
+        spawnedLevels: new Set() // Track which levels have had initial enemies spawned
     };
 }
 

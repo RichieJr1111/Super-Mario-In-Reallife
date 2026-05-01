@@ -76,13 +76,25 @@ const gameMenuModal = document.getElementById('game-menu-modal');
 const currentTimeDisplay = document.getElementById('current-time');
 const bestTimeDisplay = document.getElementById('best-time');
 
+// Auth DOM
+const authScreen = document.getElementById('auth-screen');
+const loginForm = document.getElementById('login-form');
+const signupForm = document.getElementById('signup-form');
+const loginError = document.getElementById('login-error');
+const signupError = document.getElementById('signup-error');
+
 function showScreen(screenId) {
-    [titleScreen, lobbyScreen, leaderboardScreen, document.getElementById('lobby-waiting-screen')].forEach(s => s.classList.remove('active'));
+    [titleScreen, lobbyScreen, leaderboardScreen, document.getElementById('lobby-waiting-screen'), authScreen].forEach(s => {
+        if (s) s.classList.remove('active');
+    });
+    
     if (screenId === 'title') titleScreen.classList.add('active');
     if (screenId === 'lobby') lobbyScreen.classList.add('active');
     if (screenId === 'lobby-waiting') document.getElementById('lobby-waiting-screen').classList.add('active');
     if (screenId === 'leaderboard') leaderboardScreen.classList.add('active');
+    if (screenId === 'auth') authScreen.classList.add('active');
 }
+
 
 function initSocket() {
     if (socket) return;
@@ -241,6 +253,90 @@ function initSocket() {
 }
 
 initSocket();
+
+// Authentication Logic
+let currentUser = null;
+
+async function handleLogin() {
+    const username = document.getElementById('login-username').value;
+    const password = document.getElementById('login-password').value;
+    loginError.innerText = '';
+
+    try {
+        const response = await fetch('http://localhost:3000/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            currentUser = data.username;
+            showScreen('title');
+        } else {
+            loginError.innerText = data.error || 'LOGIN FAILED';
+        }
+    } catch (err) {
+        loginError.innerText = 'SERVER ERROR';
+    }
+}
+
+async function handleSignup() {
+    const username = document.getElementById('signup-username').value;
+    const email = document.getElementById('signup-email').value;
+    const password = document.getElementById('signup-password').value;
+    const confirm = document.getElementById('signup-confirm').value;
+    signupError.innerText = '';
+
+    if (password !== confirm) {
+        signupError.innerText = 'PASSWORDS DO NOT MATCH';
+        return;
+    }
+
+    try {
+        const response = await fetch('http://localhost:3000/api/auth/signup', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, email, password })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            // Switch to login
+            loginForm.classList.add('active');
+            signupForm.classList.remove('active');
+            document.getElementById('login-username').value = username;
+            loginError.style.color = '#20C020';
+            loginError.innerText = 'ACCOUNT CREATED! PLEASE LOGIN';
+        } else {
+            signupError.innerText = data.error || 'SIGNUP FAILED';
+        }
+    } catch (err) {
+        signupError.innerText = 'SERVER ERROR';
+    }
+}
+
+// Auth Event Listeners
+document.getElementById('btn-login').addEventListener('click', handleLogin);
+document.getElementById('btn-signup').addEventListener('click', handleSignup);
+
+document.getElementById('btn-switch-signup').addEventListener('click', () => {
+    loginForm.classList.remove('active');
+    signupForm.classList.add('active');
+});
+
+document.getElementById('btn-switch-login').addEventListener('click', () => {
+    signupForm.classList.remove('active');
+    loginForm.classList.add('active');
+});
+
+document.getElementById('btn-logout').addEventListener('click', () => {
+    currentUser = null;
+    showScreen('auth');
+});
+
 
 // UI Event Listeners
 document.getElementById('btn-singleplayer').addEventListener('click', () => {
@@ -726,7 +822,7 @@ function create() {
 
   socket.on('playerBounce', () => {
     if (player && player.body) {
-      player.setVelocityY(-1000); // Bounce the player up
+      player.setVelocityY(-1100); // Bounce the player up
     }
   });
 
