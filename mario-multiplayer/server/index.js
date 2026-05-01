@@ -4,6 +4,7 @@ import { Server } from 'socket.io';
 import cors from 'cors';
 import { mapConfig, TILE, ITEM_TYPES, getBlockContent, getEnemySpawns } from './map.js';
 import { Sequelize, DataTypes } from 'sequelize';
+import { setupAuthRoutes } from './auth.js';
 
 // Database Setup
 const sequelize = new Sequelize({
@@ -16,6 +17,24 @@ const HighScore = sequelize.define('HighScore', {
     levelId: { type: DataTypes.STRING, defaultValue: 'world-1-1' },
     playerName: { type: DataTypes.STRING, defaultValue: 'Mario' },
     timeMs: { type: DataTypes.INTEGER, allowNull: false }
+});
+
+// User Model for Authentication
+const User = sequelize.define('User', {
+    username: { 
+        type: DataTypes.STRING, 
+        allowNull: false, 
+        unique: true 
+    },
+    email: { 
+        type: DataTypes.STRING, 
+        allowNull: false, 
+        unique: true 
+    },
+    passwordHash: { 
+        type: DataTypes.STRING, 
+        allowNull: false 
+    }
 });
 
 let globalBestTime = null;
@@ -38,6 +57,8 @@ initDb();
 
 const app = express();
 app.use(cors());
+app.use(express.json());
+setupAuthRoutes(app, User);
 const server = createServer(app);
 const io = new Server(server, {
     cors: { origin: "*" }
