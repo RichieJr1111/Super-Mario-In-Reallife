@@ -11,7 +11,6 @@ function checkAuthStatus() {
     if (savedUser) {
         currentUser = JSON.parse(savedUser);
         showScreen('title');
-        document.getElementById('auth-screen').classList.remove('active');
         return true;
     }
     return false;
@@ -35,7 +34,6 @@ async function handleLogin(username, password) {
             localStorage.setItem('marioUser', JSON.stringify(data));
             document.getElementById('login-username').value = '';
             document.getElementById('login-password').value = '';
-            document.getElementById('auth-screen').classList.remove('active');
             showScreen('title');
         } else {
             errorEl.textContent = data.error || 'Login failed';
@@ -84,10 +82,14 @@ function switchAuthForm(form) {
     document.getElementById('login-form').classList.remove('active');
     document.getElementById('signup-form').classList.remove('active');
     
+    const authLogo = document.querySelector('#auth-screen .mario-logo');
+
     if (form === 'login') {
         document.getElementById('login-form').classList.add('active');
+        if (authLogo) authLogo.style.display = '';
     } else {
         document.getElementById('signup-form').classList.add('active');
+        if (authLogo) authLogo.style.display = 'none';
     }
 }
 
@@ -96,7 +98,7 @@ function handleLogout() {
     localStorage.removeItem('marioUser');
     if (socket) socket.disconnect();
     socket = null;
-    document.getElementById('auth-screen').classList.add('active');
+    showScreen('auth');
     switchAuthForm('login');
     document.getElementById('login-username').value = '';
     document.getElementById('login-password').value = '';
@@ -223,6 +225,7 @@ function formatTime(ms) {
 }
 
 // Update UI
+const authScreen = document.getElementById('auth-screen');
 const titleScreen = document.getElementById('title-screen');
 const lobbyScreen = document.getElementById('lobby-screen');
 const leaderboardScreen = document.getElementById('leaderboard-screen');
@@ -235,7 +238,8 @@ const currentTimeDisplay = document.getElementById('current-time');
 const bestTimeDisplay = document.getElementById('best-time');
 
 function showScreen(screenId) {
-    [titleScreen, lobbyScreen, leaderboardScreen].forEach(s => s.classList.remove('active'));
+    [authScreen, titleScreen, lobbyScreen, leaderboardScreen].forEach(s => s.classList.remove('active'));
+    if (screenId === 'auth') authScreen.classList.add('active');
     if (screenId === 'title') titleScreen.classList.add('active');
     if (screenId === 'lobby') lobbyScreen.classList.add('active');
     if (screenId === 'leaderboard') leaderboardScreen.classList.add('active');
@@ -1183,6 +1187,6 @@ function update(time, delta) {
 window.addEventListener('load', () => {
     if (!checkAuthStatus()) {
         // Show auth screen if not logged in
-        document.getElementById('auth-screen').classList.add('active');
+        showScreen('auth');
     }
 });
