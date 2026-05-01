@@ -23,9 +23,9 @@ export const TILE = {
 };
 
 // ==========================
-// VGLC RAW MAP DATA (World 1-1)
+// MAP DATA (VGLC format)
 // ==========================
-const VGLC_MAP = [
+const WORLD_1_1 = [
   "----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------",
   "----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------",
   "----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------",
@@ -41,6 +41,43 @@ const VGLC_MAP = [
   "---------------------E------[]--------[]-E----[]-----E-E-[]------------------------------------E-E--------E-----------------EE-E-E----XXXX--XXXX----XXXXX--XXXX----[]---------EE---[]XXXXXXXXX--------F---",
   "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX--XXXXXXXXXXXXXXX---XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX--XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
 ];
+
+const UNDERGROUND = [
+  "---<>---------------------------------",
+  "---[]---------------------------------",
+  "--------------------------------------",
+  "--------------------------------------",
+  "--------------------------------------",
+  "--------------------------------------",
+  "--------------------------------------",
+  "--------------------------------------",
+  "--------------------------------------",
+  "--------------------------------------",
+  "--------------------------------------",
+  "--------------------------------------",
+  "--------------------------------------",
+  "-----<>-----------------------<>------",
+  "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+];
+
+export const MAPS = {
+  'world-1-1': {
+    data: WORLD_1_1,
+    warps: {
+      '57,9': { target: 'underground', x: 256, y: 192, warpType: 'pipe-down', spawnType: 'pipe-down' }, // 4th pipe
+      '58,9': { target: 'underground', x: 256, y: 192, warpType: 'pipe-down', spawnType: 'pipe-down' }
+    },
+    spawn: { x: 150, y: 700 }
+  },
+  'underground': {
+    data: UNDERGROUND,
+    warps: {
+      '30,13': { target: 'world-1-1', x: 10496, y: 672, warpType: 'pipe-down', spawnType: 'pipe-up' },
+      '31,13': { target: 'world-1-1', x: 10496, y: 672, warpType: 'pipe-down', spawnType: 'pipe-up' }
+    },
+    spawn: { x: 256, y: 65, spawnType: 'pipe-down' }
+  }
+};
 
 export const ITEM_TYPES = {
   NONE: 'none',
@@ -72,49 +109,46 @@ const BLOCK_CONTENT_MAP = {
   '*': ITEM_TYPES.STAR
 };
 
-// ==========================
-// MAP SETTINGS
-// ==========================
-export const WIDTH = VGLC_MAP[0].length;
-export const HEIGHT = 15; // 14 layers in VGLC + 1 layer ground fill
+export const WIDTH = WORLD_1_1[0].length;
+export const HEIGHT = 15;
 
 /**
- * Returns the item content for a specific block symbol in the VGLC map.
- * If playerState is provided (>= 1), mushrooms turn into fire flowers.
+ * Returns the item content for a specific block symbol in a map.
  */
-export function getBlockContent(x, y, playerState = 0) {
-  if (y < 0 || y >= VGLC_MAP.length) return ITEM_TYPES.NONE;
-  const char = VGLC_MAP[y][x];
+export function getBlockContent(x, y, levelId = 'world-1-1', playerState = 0) {
+  const mapData = MAPS[levelId].data;
+  if (y < 0 || y >= mapData.length) return ITEM_TYPES.NONE;
+  const char = mapData[y][x];
   let content = BLOCK_CONTENT_MAP[char] || ITEM_TYPES.NONE;
 
-  // Upgrade Mushroom to Fire Flower if player is already big
   if (content === ITEM_TYPES.MUSHROOM && playerState >= 1) {
     content = ITEM_TYPES.FIRE_FLOWER;
   }
-
   return content;
 }
 
 // ==========================
 // BUILD LEVEL (PARSER)
 // ==========================
-export function buildLevel() {
-  const map = Array.from({ length: HEIGHT }, () => Array(WIDTH).fill(TILE.EMPTY));
+export function buildLevel(levelId = 'world-1-1') {
+  const mapData = MAPS[levelId].data;
+  const height = mapData.length + (levelId === 'world-1-1' ? 1 : 0); // Add fill only for world-1-1
+  const width = mapData[0].length;
 
-  for (let y = 0; y < VGLC_MAP.length; y++) {
-    const row = VGLC_MAP[y];
-    for (let x = 0; x < WIDTH; x++) {
+  const map = Array.from({ length: height }, () => Array(width).fill(TILE.EMPTY));
+
+  for (let y = 0; y < mapData.length; y++) {
+    const row = mapData[y];
+    for (let x = 0; x < width; x++) {
       const char = row[x];
       let tileIndex = TILE_MAP[char] || TILE.EMPTY;
 
-      // Special Logic for 'X'
       if (char === 'X') {
-        if (y === 13) {
+        if (y === mapData.length - 1 && levelId === 'world-1-1') {
           tileIndex = TILE.GROUND_TOP;
-          // Add fill below ground
-          map[14][x] = TILE.GROUND_FILL;
+          map[y + 1][x] = TILE.GROUND_FILL;
         } else {
-          tileIndex = TILE.HARD_BLOCK; // Pyramid/Stair blocks
+          tileIndex = TILE.HARD_BLOCK;
         }
       }
 
@@ -122,27 +156,29 @@ export function buildLevel() {
     }
   }
 
-  return map;
+  return {
+    data: map,
+    width,
+    height,
+    levelId
+  };
 }
 
 export function flattenMap(map) {
   return map.flat();
 }
 
-export const mapConfig = {
-  width: WIDTH,
-  height: HEIGHT,
-  data: buildLevel()
-};
+export const mapConfig = buildLevel('world-1-1');
 
 /**
- * Parses the VGLC_MAP and returns initial spawn points for enemies.
+ * Parses the map and returns initial spawn points for enemies.
  */
-export function getEnemySpawns() {
+export function getEnemySpawns(levelId = 'world-1-1') {
+  const mapData = MAPS[levelId].data;
   const spawns = [];
-  for (let y = 0; y < VGLC_MAP.length; y++) {
-    const row = VGLC_MAP[y];
-    for (let x = 0; x < WIDTH; x++) {
+  for (let y = 0; y < mapData.length; y++) {
+    const row = mapData[y];
+    for (let x = 0; x < row.length; x++) {
       if (row[x] === 'E') {
         spawns.push({
           x: x * 64 + 32,

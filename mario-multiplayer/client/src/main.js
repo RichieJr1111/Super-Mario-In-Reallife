@@ -54,6 +54,7 @@ let isSinglePlayer = false;
 let runTime = 0;
 let isTimerRunning = false;
 let globalBestTime = null;
+let currentWarps = {};
 
 function formatTime(ms) {
     if (ms === null) return '--:--.--';
@@ -76,9 +77,10 @@ const currentTimeDisplay = document.getElementById('current-time');
 const bestTimeDisplay = document.getElementById('best-time');
 
 function showScreen(screenId) {
-    [titleScreen, lobbyScreen, leaderboardScreen].forEach(s => s.classList.remove('active'));
+    [titleScreen, lobbyScreen, leaderboardScreen, document.getElementById('lobby-waiting-screen')].forEach(s => s.classList.remove('active'));
     if (screenId === 'title') titleScreen.classList.add('active');
     if (screenId === 'lobby') lobbyScreen.classList.add('active');
+    if (screenId === 'lobby-waiting') document.getElementById('lobby-waiting-screen').classList.add('active');
     if (screenId === 'leaderboard') leaderboardScreen.classList.add('active');
 }
 
@@ -90,11 +92,16 @@ function initSocket() {
         lobbyList.innerHTML = '';
         lobbies.forEach(lobby => {
             const tr = document.createElement('tr');
+            const isFull = lobby.playerCount >= lobby.maxPlayers;
+            const isPlaying = lobby.status === 'playing';
+            const canJoin = !isFull && !isPlaying;
+
             tr.innerHTML = `
                 <td>${lobby.name}</td>
                 <td>${lobby.mode}</td>
-                <td>${lobby.playerCount}</td>
-                <td><button class="mario-btn secondary join-btn" data-id="${lobby.id}">JOIN</button></td>
+                <td>${lobby.playerCount}/${lobby.maxPlayers}</td>
+                <td><span class="status-tag ${lobby.status}">${lobby.status.toUpperCase()}</span></td>
+                <td><button class="mario-btn secondary join-btn" data-id="${lobby.id}" ${!canJoin ? 'disabled' : ''}>JOIN</button></td>
             `;
             lobbyList.appendChild(tr);
         });
@@ -105,6 +112,70 @@ function initSocket() {
                 socket.emit('joinLobby', btn.dataset.id);
             });
         });
+    });
+
+    socket.on('joinError', (msg) => {
+        alert(msg);
+    });
+
+    socket.on('lobbyUpdate', (lobby) => {
+        showScreen('lobby-waiting');
+        const isHost = lobby.host === socket.id;
+        
+        document.getElementById('lobby-room-name').innerText = lobby.name;
+        document.getElementById('lobby-name-setting').value = lobby.name;
+        document.getElementById('lobby-map-select').value = lobby.currentLevel;
+        document.getElementById('lobby-mode-setting').value = lobby.mode;
+        document.getElementById('lobby-max-players').value = lobby.maxPlayers;
+
+        // Enable/disable based on host status
+        const settings = ['lobby-name-setting', 'lobby-map-select', 'lobby-mode-setting', 'lobby-max-players'];
+        settings.forEach(id => {
+            document.getElementById(id).disabled = !isHost;
+        });
+
+        document.getElementById('btn-start-match').style.display = isHost ? 'block' : 'none';
+        document.getElementById('btn-kill-lobby').style.display = isHost ? 'block' : 'none';
+
+        // Update player list
+        const playerUl = document.getElementById('lobby-players-ul');
+        playerUl.innerHTML = '';
+        Object.values(lobby.players).forEach(p => {
+            const li = document.createElement('li');
+            li.className = 'player-item';
+            const isPPHost = lobby.host === p.id;
+            li.innerHTML = `
+                <div class="player-name-box">
+                    <span>${p.id === socket.id ? 'YOU' : p.id.substr(0,6)}</span>
+                    ${isPPHost ? '<span class="host-badge">HOST</span>' : ''}
+                </div>
+                ${isHost && p.id !== socket.id ? `<button class="kick-btn" data-id="${p.id}">KICK</button>` : ''}
+            `;
+            playerUl.appendChild(li);
+        });
+
+        document.querySelectorAll('.kick-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                socket.emit('kickPlayer', btn.dataset.id);
+            });
+        });
+    });
+
+    socket.on('matchStarted', () => {
+        console.log('Match starting!');
+        showScreen('none'); // Hide UI layer
+        document.body.classList.add('in-game');
+        uiLayer.style.display = 'none';
+    });
+
+    socket.on('kicked', () => {
+        alert('You have been kicked from the lobby.');
+        showScreen('lobby');
+    });
+
+    socket.on('lobbyKilled', () => {
+        alert('Lobby has been closed by the host.');
+        showScreen('lobby');
     });
 
     socket.on('lobbyCreated', (id) => {
@@ -175,6 +246,10 @@ initSocket();
 document.getElementById('btn-singleplayer').addEventListener('click', () => {
     isSinglePlayer = true;
     socket.emit('createLobby', { name: 'Singleplayer', mode: 'Co-op' });
+    // For singleplayer, we want to start immediately
+    socket.once('lobbyUpdate', () => {
+        socket.emit('startMatch');
+    });
 });
 
 document.getElementById('btn-multiplayer').addEventListener('click', () => {
@@ -211,6 +286,36 @@ document.getElementById('btn-create-lobby-confirm').addEventListener('click', ()
     const mode = document.getElementById('lobby-mode-select').value;
     socket.emit('createLobby', { name, mode });
     createModal.classList.remove('active');
+});
+
+// Lobby Waiting Room Listeners
+const updateSettings = () => {
+    const name = document.getElementById('lobby-name-setting').value;
+    const map = document.getElementById('lobby-map-select').value;
+    const mode = document.getElementById('lobby-mode-setting').value;
+    const maxPlayers = document.getElementById('lobby-max-players').value;
+    socket.emit('updateLobbySettings', { name, map, mode, maxPlayers });
+};
+
+document.getElementById('lobby-name-setting').addEventListener('change', updateSettings);
+document.getElementById('lobby-map-select').addEventListener('change', updateSettings);
+document.getElementById('lobby-mode-setting').addEventListener('change', updateSettings);
+document.getElementById('lobby-max-players').addEventListener('change', updateSettings);
+
+document.getElementById('btn-start-match').addEventListener('click', () => {
+    socket.emit('startMatch');
+});
+
+document.getElementById('btn-kill-lobby').addEventListener('click', () => {
+    if (confirm('Are you sure you want to kill the lobby?')) {
+        socket.emit('killLobby');
+    }
+});
+
+document.getElementById('btn-leave-lobby').addEventListener('click', () => {
+    isSinglePlayer = false;
+    socket.emit('leaveLobby');
+    showScreen('lobby');
 });
 
 document.getElementById('btn-settings').addEventListener('click', () => {
@@ -281,7 +386,9 @@ function preload() {
 }
 
 function handleInitMap(mapData) {
-    console.log('Received map data');
+    console.log('Received map data for level:', mapData.levelId);
+    currentWarps = mapData.warps || {};
+    console.log('Current warps:', JSON.stringify(currentWarps));
 
     // Clear game state on map reset
     if (layer) {
@@ -296,7 +403,9 @@ function handleInitMap(mapData) {
     if (uiLayer) document.body.classList.add('in-game');
 
     if (isSinglePlayer) {
-      runTime = 0;
+      if (!mapData.isWarp) {
+        runTime = 0;
+      }
       isTimerRunning = true;
     } else {
       isTimerRunning = false;
@@ -323,6 +432,7 @@ function handleInitMap(mapData) {
     });
     const tileset = map.addTilesetImage('tiles', 'tiles');
     layer = map.createLayer(0, tileset, 0, 0);
+    layer.setDepth(2); // Set layer above players for pipe entry/exit
 
     if (layer) {
       // Explicitly set collision for all solid tiles:
@@ -334,10 +444,20 @@ function handleInitMap(mapData) {
       this.cameras.main.setBounds(0, 0, mapWidth, mapHeight);
       this.cameras.main.setZoom(0.5);
 
-      if (player) {
-        player.levelFinished = false;
-        playerCollider = this.physics.add.collider(player, layer, handleTileCollision, null, this);
+    if (player) {
+      player.levelFinished = false;
+      if (playerCollider) this.physics.world.removeCollider(playerCollider);
+      playerCollider = this.physics.add.collider(player, layer, handleTileCollision, null, this);
+      
+      // Set position immediately for warp/spawn to avoid race conditions in animations
+      if (mapData.spawnX !== undefined && mapData.spawnY !== undefined) {
+          player.setPosition(mapData.spawnX, mapData.spawnY);
       }
+      
+      if (mapData.spawnType && mapData.spawnType !== 'none') {
+          playPipeExitAnimation(this, player, mapData.spawnType);
+      }
+    }
     }
     
     // Hide UI menus on level init
@@ -345,6 +465,34 @@ function handleInitMap(mapData) {
         uiLayer.style.display = 'none';
         document.body.classList.add('in-game');
     }
+}
+
+function playPipeExitAnimation(scene, sprite, type) {
+    if (!sprite || !sprite.body) return;
+    sprite.body.setAllowGravity(false);
+    sprite.body.setVelocity(0, 0);
+    sprite.isAnimating = true;
+    sprite.setDepth(1); // Behind pipe
+
+    const originalY = sprite.y;
+    const dist = 128; // Use 128 to ensure big Mario is also fully hidden
+    if (type === 'pipe-down') {
+        sprite.y = originalY - dist;
+    } else if (type === 'pipe-up') {
+        sprite.y = originalY + dist;
+    }
+
+    scene.tweens.add({
+        targets: sprite,
+        y: originalY,
+        duration: 800,
+        ease: 'Power1',
+        onComplete: () => {
+            sprite.body.setAllowGravity(true);
+            sprite.isAnimating = false;
+            sprite.setDepth(5); // Back in front
+        }
+    });
 }
 
 function handleCurrentPlayers(playersData) {
@@ -374,6 +522,10 @@ function handleInitEnemies(data) {
 function create() {
   console.log('Phaser Create started');
   
+  fireballs = this.add.group();
+  enemies = this.add.group();
+  this.items = this.physics.add.group();
+
   otherPlayers = this.physics.add.group();
 
   setupAnimations(this);
@@ -435,7 +587,7 @@ function create() {
 
       // Force position sync if we're far away (like during a level restart)
       const distSq = Phaser.Math.Distance.Squared(player.x, player.y, playerInfo.x, playerInfo.y);
-      if (distSq > 100 * 100 || player.dead) {
+      if ((distSq > 100 * 100 && !player.isAnimating) || player.dead) {
         player.setPosition(playerInfo.x, playerInfo.y);
         player.setVelocity(0, 0);
         player.setAcceleration(0, 0);
@@ -461,10 +613,6 @@ function create() {
   cursors = this.input.keyboard.createCursorKeys();
   keyX = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.X);
   keyEsc = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ESC);
-
-  fireballs = this.add.group();
-  enemies = this.add.group();
-  this.items = this.physics.add.group();
 
   if (window.pendingInit) {
       if (window.pendingInit.map) handleInitMap.call(this, window.pendingInit.map);
@@ -632,6 +780,7 @@ function createItemSprite(scene, item) {
 
   const sprite = scene.items.create(item.x, item.y, 'tiles', frame);
   sprite.id = item.id;
+  sprite.setDepth(4);
   sprite.body.setAllowGravity(false); // Server handles gravity
 
   if (item.type === 'coin') {
@@ -655,7 +804,8 @@ function createEnemySprite(scene, enemy) {
   const sprite = scene.add.sprite(enemy.x, enemy.y, 'tiles', frame).setScale(1);
   sprite.id = enemy.id;
   sprite.type = enemy.type;
-  enemies.add(sprite);
+  sprite.setDepth(4);
+  if (enemies) enemies.add(sprite);
 }
 
 function handleTileCollision(obj1, tile) {
@@ -771,6 +921,7 @@ function addPlayer(scene, playerInfo) {
 
   player.body.setDragX(DRAG);
   player.body.setMaxVelocity(RUN_MAX_VELOCITY, 1100);
+  player.setDepth(5);
   scene.cameras.main.startFollow(player, true);
 }
 
@@ -786,6 +937,7 @@ function addOtherPlayers(scene, playerInfo) {
   applyPlayerState(otherPlayer, playerInfo.state || 0);
   if (playerInfo.anim) otherPlayer.anims.play(playerInfo.anim, true);
   otherPlayer.invincible = playerInfo.invincible || false;
+  otherPlayer.setDepth(5);
   otherPlayers.add(otherPlayer);
 }
 
@@ -880,7 +1032,7 @@ function update(time, delta) {
       return;
     }
     
-    if (player.dead || player.levelFinished) {
+    if (player.dead || player.levelFinished || player.isAnimating) {
       if (player.dead) {
         player.anims.play('die', true);
       } else {
@@ -890,7 +1042,10 @@ function update(time, delta) {
       player.setVelocity(0, 0);
       player.setAcceleration(0, 0);
       player.setCollideWorldBounds(player.levelFinished); // Keep in world if finished, fall out if dead
-      isTimerRunning = false;
+      
+      if (player.dead || player.levelFinished) {
+          isTimerRunning = false;
+      }
       return;
     }
     player.setCollideWorldBounds(true);
@@ -979,6 +1134,26 @@ function update(time, delta) {
       player.anims.play('fire_shoot', true);
     }
 
+    if (cursors.down.isDown) {
+      if (isGrounded && !player.warping && !player.isAnimating) {
+          // Check if we are on a pipe
+          const tx = Math.floor(player.x / 64);
+          // Check a few pixels below feet to hit the pipe top
+          const feetY = player.y + (player.state === 0 ? 32 : 64);
+          const ty = Math.floor((feetY + 10) / 64);
+          const tile = layer.getTileAt(tx, ty);
+          
+          if (tile && (tile.index === 94 || tile.index === 95)) {
+              const warpCoords = `${tx},${ty}`;
+              const warpInfo = currentWarps[warpCoords];
+              if (warpInfo) {
+                  const pipeCenterX = (tile.index === 94) ? (tile.x * 64 + 64) : (tile.x * 64);
+                  playPipeEnterAnimation(this, player, pipeCenterX, warpInfo.warpType || 'pipe-down');
+              }
+          }
+      }
+    }
+
     const now = Date.now();
     const x = Math.round(player.x * 10) / 10;
     const y = Math.round(player.y * 10) / 10;
@@ -1018,4 +1193,30 @@ function update(time, delta) {
       player.alpha = 1;
     }
   }
+}
+
+function playPipeEnterAnimation(scene, sprite, pipeCenterX, type) {
+    if (sprite.isAnimating) return;
+    sprite.isAnimating = true;
+    sprite.warping = true;
+    sprite.body.setAllowGravity(false);
+    sprite.body.setVelocity(0, 0);
+    sprite.setDepth(1); // Go behind pipe
+
+    const dist = 128;
+    const targetY = (type === 'pipe-up') ? (sprite.y - dist) : (sprite.y + dist);
+
+    scene.tweens.add({
+        targets: sprite,
+        x: pipeCenterX,
+        y: targetY,
+        duration: 800,
+        ease: 'Power1',
+        onComplete: () => {
+            socket.emit('requestWarp');
+            sprite.isAnimating = false;
+            sprite.warping = false;
+            sprite.setDepth(5);
+        }
+    });
 }

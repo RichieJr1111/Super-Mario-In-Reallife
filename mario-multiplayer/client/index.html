@@ -46,6 +46,7 @@
               <th>NAME</th>
               <th>MODE</th>
               <th>PLAYERS</th>
+              <th>STATUS</th>
               <th>ACTION</th>
             </tr>
           </thead>
@@ -57,6 +58,53 @@
       <div class="lobby-actions">
         <button id="btn-create-lobby-open" class="mario-btn secondary">CREATE NEW</button>
         <button id="btn-back-to-title" class="mario-btn secondary">BACK</button>
+      </div>
+    </div>
+
+    <!-- Lobby Waiting Room Screen -->
+    <div id="lobby-waiting-screen" class="screen">
+      <h2 class="retro-title" id="lobby-room-name">LOBBY NAME</h2>
+      <div id="lobby-room-container">
+        <div class="lobby-room-info mario-card">
+          <div class="lobby-setting">
+            <label>NAME:</label>
+            <input type="text" id="lobby-name-setting" maxlength="15" disabled>
+          </div>
+          <div class="lobby-setting">
+            <label>MAP:</label>
+            <select id="lobby-map-select" disabled>
+              <option value="world-1-1">WORLD 1-1</option>
+              <option value="underground">UNDERGROUND</option>
+            </select>
+          </div>
+          <div class="lobby-setting">
+            <label>MODE:</label>
+            <select id="lobby-mode-setting" disabled>
+              <option value="Co-op">CO-OP</option>
+              <option value="PvP">PVP</option>
+              <option value="Chaos">CHAOS</option>
+            </select>
+          </div>
+          <div class="lobby-setting">
+            <label>MAX PLAYERS:</label>
+            <input type="number" id="lobby-max-players" value="4" min="1" max="10" disabled>
+          </div>
+        </div>
+        
+        <div class="lobby-players-list mario-card">
+          <h3 class="retro-title" style="font-size: 16px; margin-bottom: 15px;">PLAYERS</h3>
+          <div class="players-scroll">
+            <ul id="lobby-players-ul">
+              <!-- Players injected here -->
+            </ul>
+          </div>
+        </div>
+      </div>
+      
+      <div class="lobby-actions">
+        <button id="btn-start-match" class="mario-btn" style="display: none;">START MATCH</button>
+        <button id="btn-kill-lobby" class="mario-btn secondary" style="display: none;">KILL LOBBY</button>
+        <button id="btn-leave-lobby" class="mario-btn secondary">LEAVE</button>
       </div>
     </div>
 

@@ -192,6 +192,22 @@ body.in-game #ui-layer {
   border-bottom: 2px solid #222;
 }
 
+.status-tag {
+  font-size: 10px;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.status-tag.waiting {
+  background: #20C020;
+  color: white;
+}
+
+.status-tag.playing {
+  background: var(--mario-red);
+  color: white;
+}
+
 /* Animations */
 @keyframes fadeIn {
   from { opacity: 0; }
@@ -384,4 +400,107 @@ body.in-game #hud-layer {
   border-bottom: 2px solid #222;
   text-align: center;
   color: white;
+}
+
+/* Lobby Waiting Room */
+#lobby-room-container {
+  display: flex;
+  gap: 40px;
+  width: 90%;
+  max-width: 1000px;
+  justify-content: center;
+  margin-bottom: 40px;
+  flex-wrap: wrap;
+}
+
+.lobby-room-info {
+  flex: 1;
+  min-width: 300px;
+  text-align: left;
+}
+
+.lobby-setting {
+  margin-bottom: 20px;
+}
+
+.lobby-setting label {
+  display: block;
+  font-size: 12px;
+  color: var(--mario-yellow);
+  margin-bottom: 8px;
+}
+
+.lobby-setting input,
+.lobby-setting select {
+  width: 100%;
+  background: #000;
+  border: 4px solid var(--mario-white);
+  color: white;
+  padding: 10px;
+  font-family: var(--mario-font);
+  font-size: 14px;
+  outline: none;
+}
+
+.lobby-setting input:disabled,
+.lobby-setting select:disabled {
+  opacity: 0.7;
+  border-color: #555;
+  cursor: not-allowed;
+}
+
+.lobby-players-list {
+  flex: 1;
+  min-width: 300px;
+  max-height: 400px;
+  display: flex;
+  flex-direction: column;
+}
+
+.players-scroll {
+  overflow-y: auto;
+  flex: 1;
+}
+
+#lobby-players-ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.player-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px;
+  border-bottom: 2px solid rgba(0,0,0,0.2);
+  background: rgba(0,0,0,0.1);
+  margin-bottom: 5px;
+}
+
+.player-name-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.host-badge {
+  font-size: 8px;
+  background: var(--mario-yellow);
+  color: black;
+  padding: 2px 5px;
+}
+
+.kick-btn {
+  background: var(--mario-red);
+  color: white;
+  border: 2px solid white;
+  font-family: var(--mario-font);
+  font-size: 8px;
+  padding: 5px;
+  cursor: pointer;
+}
+
+.kick-btn:hover {
+  background: black;
 }
