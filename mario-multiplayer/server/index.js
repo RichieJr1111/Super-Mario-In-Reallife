@@ -37,18 +37,9 @@ const User = sequelize.define('User', {
     }
 });
 
-let globalBestTime = null;
-
 async function initDb() {
     try {
         await sequelize.sync();
-        const best = await HighScore.findOne({
-            order: [['timeMs', 'ASC']]
-        });
-        if (best) {
-            globalBestTime = best.timeMs;
-            console.log(`Loaded Global Best: ${globalBestTime}ms`);
-        }
     } catch (err) {
         console.error('Database init error:', err);
     }
@@ -624,15 +615,34 @@ function EndLevel(lobby) {
         const p = lobby.players[pId];
         if (p.runStartTime && !p.dead) {
             const elapsed = now - p.runStartTime;
-            if (globalBestTime === null || elapsed < globalBestTime) {
-                globalBestTime = elapsed;
-                try {
-                    await HighScore.create({ timeMs: elapsed });
-                    io.emit('newGlobalBest', globalBestTime);
-                    console.log(`New Global Best: ${elapsed}ms`);
-                } catch (err) {
-                    console.error('Error saving high score:', err);
+            
+            try {
+                // Save the score
+                await HighScore.create({ 
+                    timeMs: elapsed,
+                    playerName: p.username || 'Guest',
+                    levelId: lobby.currentLevel
+                });
+
+                // Get personal best to send back
+                const personalBest = await HighScore.findOne({
+                    where: { playerName: p.username || 'Guest' },
+                    order: [['timeMs', 'ASC']]
+                });
+
+                if (personalBest) {
+                    io.to(pId).emit('personalBest', personalBest.timeMs);
                 }
+
+                // Check if it's a global best (for server logging or broad notification if desired)
+                const globalBest = await HighScore.findOne({
+                    order: [['timeMs', 'ASC']]
+                });
+                if (globalBest && elapsed <= globalBest.timeMs) {
+                    console.log(`New Global Best: ${elapsed}ms by ${p.username}`);
+                }
+            } catch (err) {
+                console.error('Error saving high score:', err);
             }
         }
     });
@@ -645,29 +655,17 @@ function EndLevel(lobby) {
 
 function RestartLevel(lobby) {
     const levelId = lobby.currentLevel || 'world-1-1';
-    const map = getLobbyMap(lobby, levelId);
+    
+    // 1. Rebuild map to reset broken blocks/collected coins
+    lobby.builtMaps[levelId] = buildLevel(levelId);
+    const map = lobby.builtMaps[levelId];
+    
     const spawnPos = MAPS[levelId].spawn || { x: 150, y: 700 };
     const spawnType = spawnPos.spawnType || 'none';
-    
-    io.to(lobby.id).emit('initMap', { 
-        ...map, 
-        warps: MAPS[levelId].warps,
-        spawnType,
-        spawnX: spawnPos.x,
-        spawnY: spawnPos.y
-    });
 
-    // 2. Clear Items & Fireballs
-    Object.keys(lobby.activeItems).forEach(id => delete lobby.activeItems[id]);
-    Object.keys(lobby.activeFireballs).forEach(id => delete lobby.activeFireballs[id]);
-    io.to(lobby.id).emit('initItems', {});
-
-    // 3. Reset Enemies
-    Object.keys(lobby.activeEnemies).forEach(id => delete lobby.activeEnemies[id]);
-    getEnemySpawns(levelId).forEach(spawn => spawnEnemy(lobby, spawn.x, spawn.y, spawn.type, levelId));
-    lobby.spawnedLevels = new Set([levelId]);
-
-    // 4. Reset Players
+    // 2. RESET PLAYERS & MOVE TO ROOM FIRST
+    // We must move players to the correct level room BEFORE spawning enemies
+    // so they are in the room to receive the 'enemySpawned' events.
     Object.keys(lobby.players).forEach(id => {
         const p = lobby.players[id];
         const socket = io.sockets.sockets.get(id);
@@ -686,12 +684,39 @@ function RestartLevel(lobby) {
         p.invincible = false;
         p.starPowerTimer = 0;
         p.runStartTime = Date.now(); 
-        io.to(`${lobby.id}_${levelId}`).emit('playerMoved', p);
+    });
+
+    // 3. BROADCAST MAP INIT
+    io.to(lobby.id).emit('initMap', { 
+        ...map, 
+        warps: MAPS[levelId].warps,
+        spawnType,
+        spawnX: spawnPos.x,
+        spawnY: spawnPos.y
+    });
+
+    // 4. RESET ENTITIES
+    Object.keys(lobby.activeItems).forEach(id => delete lobby.activeItems[id]);
+    Object.keys(lobby.activeFireballs).forEach(id => delete lobby.activeFireballs[id]);
+    io.to(lobby.id).emit('initItems', {});
+
+    Object.keys(lobby.activeEnemies).forEach(id => delete lobby.activeEnemies[id]);
+    getEnemySpawns(levelId).forEach(spawn => spawnEnemy(lobby, spawn.x, spawn.y, spawn.type, levelId));
+    lobby.spawnedLevels = new Set([levelId]);
+
+    // 5. BROADCAST PLAYER POSITIONS (Now that everyone is in the room)
+    Object.keys(lobby.players).forEach(id => {
+        io.to(`${lobby.id}_${levelId}`).emit('playerMoved', lobby.players[id]);
     });
 }
 
 io.on('connection', (socket) => {
     console.log('User connected:', socket.id);
+
+    socket.on('registerUsername', (username) => {
+        socket.username = username;
+        console.log(`Socket ${socket.id} registered as ${username}`);
+    });
 
     // Send available lobbies on connection
     socket.emit('lobbyList', Object.values(lobbies).map(l => ({
@@ -704,7 +729,8 @@ io.on('connection', (socket) => {
     })));
 
     socket.on('createLobby', (data) => {
-        const { name, mode } = data;
+        const { name, mode, username } = data;
+        if (username) socket.username = username;
         const id = `lobby_${Math.random().toString(36).substr(2, 9)}`;
         lobbies[id] = createLobby(id, name, mode, socket.id);
         
@@ -712,7 +738,11 @@ io.on('connection', (socket) => {
         broadcastLobbyList();
     });
 
-    socket.on('joinLobby', (lobbyId) => {
+    socket.on('joinLobby', (data) => {
+        const lobbyId = typeof data === 'string' ? data : data.lobbyId;
+        const username = typeof data === 'string' ? null : data.username;
+        if (username) socket.username = username;
+        
         const lobby = lobbies[lobbyId];
         if (!lobby) return;
 
@@ -730,7 +760,9 @@ io.on('connection', (socket) => {
         socket.lobbyId = lobbyId;
 
         lobby.players[socket.id] = {
-            x: 150, y: 700, id: socket.id, anim: 'idle', flipX: false,
+            x: 150, y: 700, id: socket.id, 
+            username: socket.username || 'Guest',
+            anim: 'idle', flipX: false,
             state: 0, vy: 0, invincible: false, starPowerTimer: 0,
             invulnTimer: 0, dead: false, runStartTime: Date.now(),
             levelId: lobby.currentLevel
@@ -815,7 +847,7 @@ io.on('connection', (socket) => {
         io.to(lobby.id).emit('matchStarted');
 
         // Send init data to all players
-        Object.keys(lobby.players).forEach(pId => {
+        Object.keys(lobby.players).forEach(async pId => {
             const pSocket = io.sockets.sockets.get(pId);
             if (!pSocket) return;
 
@@ -843,7 +875,16 @@ io.on('connection', (socket) => {
 
             pSocket.emit('initItems', levelItems);
             pSocket.emit('initEnemies', levelEnemies);
-            pSocket.emit('globalBest', globalBestTime);
+            
+            // Send personal best on join
+            const p = lobby.players[pId];
+            if (p) {
+                const pb = await HighScore.findOne({
+                    where: { playerName: p.username || 'Guest' },
+                    order: [['timeMs', 'ASC']]
+                });
+                pSocket.emit('personalBest', pb ? pb.timeMs : null);
+            }
         });
 
         broadcastLobbyList();
@@ -878,8 +919,13 @@ io.on('connection', (socket) => {
     socket.on('getLeaderboard', async () => {
         try {
             const scores = await HighScore.findAll({
-                limit: 10,
-                order: [['timeMs', 'ASC']]
+                attributes: [
+                    'playerName',
+                    [sequelize.fn('MIN', sequelize.col('timeMs')), 'timeMs']
+                ],
+                group: ['playerName'],
+                order: [[sequelize.literal('timeMs'), 'ASC']],
+                limit: 100
             });
             socket.emit('leaderboardData', scores);
         } catch (err) {

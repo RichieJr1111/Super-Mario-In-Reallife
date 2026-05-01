@@ -463,6 +463,21 @@ body.in-game #hud-layer {
   color: white;
 }
 
+#leaderboard-table tr.rank-gold td {
+  color: #FFD700;
+  text-shadow: 2px 2px 0px #000;
+}
+
+#leaderboard-table tr.rank-silver td {
+  color: #C0C0C0;
+  text-shadow: 2px 2px 0px #000;
+}
+
+#leaderboard-table tr.rank-bronze td {
+  color: #CD7F32;
+  text-shadow: 2px 2px 0px #000;
+}
+
 /* Lobby Waiting Room */
 #lobby-room-container {
   display: flex;

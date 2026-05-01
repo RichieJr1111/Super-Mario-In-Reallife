@@ -53,7 +53,7 @@ let keyEsc;
 let isSinglePlayer = false;
 let runTime = 0;
 let isTimerRunning = false;
-let globalBestTime = null;
+let personalBestTime = null;
 let currentWarps = {};
 
 function formatTime(ms) {
@@ -121,7 +121,7 @@ function initSocket() {
         document.querySelectorAll('.join-btn').forEach(btn => {
             btn.addEventListener('click', () => {
                 isSinglePlayer = false;
-                socket.emit('joinLobby', btn.dataset.id);
+                socket.emit('joinLobby', { lobbyId: btn.dataset.id, username: currentUser });
             });
         });
     });
@@ -156,9 +156,13 @@ function initSocket() {
             const li = document.createElement('li');
             li.className = 'player-item';
             const isPPHost = lobby.host === p.id;
+            let displayName = p.username || p.id.substr(0, 6);
+            if (p.id === socket.id) {
+                displayName = p.username ? `${p.username} (YOU)` : 'YOU';
+            }
             li.innerHTML = `
                 <div class="player-name-box">
-                    <span>${p.id === socket.id ? 'YOU' : p.id.substr(0,6)}</span>
+                    <span>${displayName}</span>
                     ${isPPHost ? '<span class="host-badge">HOST</span>' : ''}
                 </div>
                 ${isHost && p.id !== socket.id ? `<button class="kick-btn" data-id="${p.id}">KICK</button>` : ''}
@@ -191,7 +195,7 @@ function initSocket() {
     });
 
     socket.on('lobbyCreated', (id) => {
-        socket.emit('joinLobby', id);
+        socket.emit('joinLobby', { lobbyId: id, username: currentUser });
     });
 
     socket.on('initMap', (mapData) => {
@@ -228,20 +232,19 @@ function initSocket() {
         }
     });
 
-    socket.on('globalBest', (best) => {
-        globalBestTime = best;
-        if (bestTimeDisplay) bestTimeDisplay.innerText = formatTime(globalBestTime);
-    });
-
-    socket.on('newGlobalBest', (best) => {
-        globalBestTime = best;
-        if (bestTimeDisplay) bestTimeDisplay.innerText = formatTime(globalBestTime);
+    socket.on('personalBest', (best) => {
+        personalBestTime = best;
+        if (bestTimeDisplay) bestTimeDisplay.innerText = formatTime(personalBestTime);
     });
 
     socket.on('leaderboardData', (scores) => {
         leaderboardList.innerHTML = '';
         scores.forEach((score, index) => {
             const tr = document.createElement('tr');
+            if (index === 0) tr.classList.add('rank-gold');
+            else if (index === 1) tr.classList.add('rank-silver');
+            else if (index === 2) tr.classList.add('rank-bronze');
+
             tr.innerHTML = `
                 <td>${index + 1}</td>
                 <td>${score.playerName}</td>
@@ -273,6 +276,7 @@ async function handleLogin() {
 
         if (response.ok) {
             currentUser = data.username;
+            socket.emit('registerUsername', currentUser);
             showScreen('title');
         } else {
             loginError.innerText = data.error || 'LOGIN FAILED';
@@ -341,7 +345,7 @@ document.getElementById('btn-logout').addEventListener('click', () => {
 // UI Event Listeners
 document.getElementById('btn-singleplayer').addEventListener('click', () => {
     isSinglePlayer = true;
-    socket.emit('createLobby', { name: 'Singleplayer', mode: 'Co-op' });
+    socket.emit('createLobby', { name: 'Singleplayer', mode: 'Co-op', username: currentUser });
     // For singleplayer, we want to start immediately
     socket.once('lobbyUpdate', () => {
         socket.emit('startMatch');
@@ -380,7 +384,7 @@ const settingsModal = document.getElementById('settings-modal');
 document.getElementById('btn-create-lobby-confirm').addEventListener('click', () => {
     const name = document.getElementById('lobby-name-input').value || 'New Room';
     const mode = document.getElementById('lobby-mode-select').value;
-    socket.emit('createLobby', { name, mode });
+    socket.emit('createLobby', { name, mode, username: currentUser });
     createModal.classList.remove('active');
 });
 
@@ -542,6 +546,11 @@ function handleInitMap(mapData) {
 
     if (player) {
       player.levelFinished = false;
+      player.dead = false; // Reset death state on level reset
+      player.alpha = 1;
+      player.clearTint();
+      if (player.anims) player.anims.play('idle', true);
+
       if (playerCollider) this.physics.world.removeCollider(playerCollider);
       playerCollider = this.physics.add.collider(player, layer, handleTileCollision, null, this);
       
@@ -683,11 +692,15 @@ function create() {
 
       // Force position sync if we're far away (like during a level restart)
       const distSq = Phaser.Math.Distance.Squared(player.x, player.y, playerInfo.x, playerInfo.y);
-      if ((distSq > 100 * 100 && !player.isAnimating) || player.dead) {
+      if ((distSq > 100 * 100 && !player.isAnimating) || (player.dead && !player.oldDead)) {
         player.setPosition(playerInfo.x, playerInfo.y);
-        player.setVelocity(0, 0);
-        player.setAcceleration(0, 0);
+        // Only kill velocity if NOT dead (to allow death hop)
+        if (!player.dead) {
+            player.setVelocity(0, 0);
+            player.setAcceleration(0, 0);
+        }
       }
+      player.oldDead = player.dead;
     }
   });
 
@@ -1027,6 +1040,7 @@ function addOtherPlayers(scene, playerInfo) {
 
   const otherPlayer = scene.physics.add.sprite(playerInfo.x, playerInfo.y, 'mario').setScale(4);
   otherPlayer.id = playerInfo.id;
+  otherPlayer.username = playerInfo.username || 'Guest';
   otherPlayer.targetX = playerInfo.x;
   otherPlayer.targetY = playerInfo.y;
   otherPlayer.body.moves = false; // Prevent local physics (gravity/velocity) from interfering with server-synced position
@@ -1034,6 +1048,29 @@ function addOtherPlayers(scene, playerInfo) {
   if (playerInfo.anim) otherPlayer.anims.play(playerInfo.anim, true);
   otherPlayer.invincible = playerInfo.invincible || false;
   otherPlayer.setDepth(5);
+
+  // Username Label
+  const labelText = scene.add.text(0, 0, otherPlayer.username, {
+    fontFamily: '"Press Start 2P"',
+    fontSize: '14px',
+    fill: '#ffffff',
+    align: 'center'
+  }).setOrigin(0.5);
+  labelText.setDepth(10);
+
+  const padding = 8;
+  const bg = scene.add.rectangle(0, 0, labelText.width + padding, labelText.height + padding, 0x000000, 0.5);
+  bg.setDepth(9);
+
+  otherPlayer.usernameLabel = labelText;
+  otherPlayer.usernameBg = bg;
+
+  // Cleanup labels when player is destroyed
+  otherPlayer.on('destroy', () => {
+    if (labelText) labelText.destroy();
+    if (bg) bg.destroy();
+  });
+
   otherPlayers.add(otherPlayer);
 }
 
@@ -1099,6 +1136,13 @@ function update(time, delta) {
       } else {
         otherPlayer.alpha = 1;
       }
+
+      // Update Username Label Position
+      if (otherPlayer.usernameLabel && otherPlayer.usernameBg) {
+        const labelY = otherPlayer.y - (otherPlayer.state === 0 ? 60 : 100);
+        otherPlayer.usernameLabel.setPosition(otherPlayer.x, labelY);
+        otherPlayer.usernameBg.setPosition(otherPlayer.x, labelY);
+      }
     }
   });
 
@@ -1131,13 +1175,15 @@ function update(time, delta) {
     if (player.dead || player.levelFinished || player.isAnimating) {
       if (player.dead) {
         player.anims.play('die', true);
+        player.setCollideWorldBounds(false); // Allow falling off screen
+        // Don't kill velocity here to allow death animation
       } else {
         const state = player.state || 0;
         player.anims.play(getAnimKey('idle', state), true);
+        player.setVelocity(0, 0);
+        player.setAcceleration(0, 0);
+        player.setCollideWorldBounds(true);
       }
-      player.setVelocity(0, 0);
-      player.setAcceleration(0, 0);
-      player.setCollideWorldBounds(player.levelFinished); // Keep in world if finished, fall out if dead
       
       if (player.dead || player.levelFinished) {
           isTimerRunning = false;
