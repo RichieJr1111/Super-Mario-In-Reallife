@@ -2,6 +2,165 @@ import Phaser from 'phaser';
 import { io } from 'socket.io-client';
 import './style.css';
 
+// ===== AUTHENTICATION =====
+let currentUser = null;
+
+// Check if user is already logged in
+function checkAuthStatus() {
+    const savedUser = localStorage.getItem('marioUser');
+    if (savedUser) {
+        currentUser = JSON.parse(savedUser);
+        showScreen('title');
+        document.getElementById('auth-screen').classList.remove('active');
+        return true;
+    }
+    return false;
+}
+
+async function handleLogin(username, password) {
+    const errorEl = document.getElementById('login-error');
+    errorEl.textContent = '';
+
+    try {
+        const response = await fetch('http://localhost:3000/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            currentUser = data;
+            localStorage.setItem('marioUser', JSON.stringify(data));
+            document.getElementById('login-username').value = '';
+            document.getElementById('login-password').value = '';
+            document.getElementById('auth-screen').classList.remove('active');
+            showScreen('title');
+        } else {
+            errorEl.textContent = data.error || 'Login failed';
+        }
+    } catch (error) {
+        errorEl.textContent = 'Connection error. Server not running?';
+        console.error('Login error:', error);
+    }
+}
+
+async function handleSignUp(username, email, password, confirmPassword) {
+    const errorEl = document.getElementById('signup-error');
+    errorEl.textContent = '';
+
+    if (password !== confirmPassword) {
+        errorEl.textContent = 'Passwords do not match';
+        return;
+    }
+
+    try {
+        const response = await fetch('http://localhost:3000/api/auth/signup', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, email, password })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+            errorEl.textContent = '';
+            // Auto login after signup
+            document.getElementById('login-username').value = username;
+            document.getElementById('login-password').value = password;
+            switchAuthForm('login');
+            document.getElementById('btn-login').click();
+        } else {
+            errorEl.textContent = data.error || 'Sign up failed';
+        }
+    } catch (error) {
+        errorEl.textContent = 'Connection error. Server not running?';
+        console.error('Signup error:', error);
+    }
+}
+
+function switchAuthForm(form) {
+    document.getElementById('login-form').classList.remove('active');
+    document.getElementById('signup-form').classList.remove('active');
+    
+    if (form === 'login') {
+        document.getElementById('login-form').classList.add('active');
+    } else {
+        document.getElementById('signup-form').classList.add('active');
+    }
+}
+
+function handleLogout() {
+    currentUser = null;
+    localStorage.removeItem('marioUser');
+    if (socket) socket.disconnect();
+    socket = null;
+    document.getElementById('auth-screen').classList.add('active');
+    switchAuthForm('login');
+    document.getElementById('login-username').value = '';
+    document.getElementById('login-password').value = '';
+    document.getElementById('login-error').textContent = '';
+    document.getElementById('signup-error').textContent = '';
+}
+
+// Auth Event Listeners
+document.getElementById('btn-login').addEventListener('click', () => {
+    const username = document.getElementById('login-username').value.trim();
+    const password = document.getElementById('login-password').value;
+    
+    if (!username || !password) {
+        document.getElementById('login-error').textContent = 'Please fill in all fields';
+        return;
+    }
+    
+    handleLogin(username, password);
+});
+
+document.getElementById('btn-signup').addEventListener('click', () => {
+    const username = document.getElementById('signup-username').value.trim();
+    const email = document.getElementById('signup-email').value.trim();
+    const password = document.getElementById('signup-password').value;
+    const confirmPassword = document.getElementById('signup-confirm').value;
+    
+    if (!username || !email || !password || !confirmPassword) {
+        document.getElementById('signup-error').textContent = 'Please fill in all fields';
+        return;
+    }
+    
+    if (password.length < 6) {
+        document.getElementById('signup-error').textContent = 'Password must be at least 6 characters';
+        return;
+    }
+    
+    handleSignUp(username, email, password, confirmPassword);
+});
+
+document.getElementById('btn-switch-signup').addEventListener('click', () => {
+    switchAuthForm('signup');
+});
+
+document.getElementById('btn-switch-login').addEventListener('click', () => {
+    switchAuthForm('login');
+});
+
+document.getElementById('btn-logout').addEventListener('click', () => {
+    handleLogout();
+});
+
+// Allow Enter key in login/signup
+['login-username', 'login-password'].forEach(id => {
+    document.getElementById(id).addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') document.getElementById('btn-login').click();
+    });
+});
+
+['signup-username', 'signup-email', 'signup-password', 'signup-confirm'].forEach(id => {
+    document.getElementById(id).addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') document.getElementById('btn-signup').click();
+    });
+});
+
 const config = {
   type: Phaser.AUTO,
   width: 800,
@@ -1019,3 +1178,11 @@ function update(time, delta) {
     }
   }
 }
+
+// Initialize: Check auth status on page load
+window.addEventListener('load', () => {
+    if (!checkAuthStatus()) {
+        // Show auth screen if not logged in
+        document.getElementById('auth-screen').classList.add('active');
+    }
+});
