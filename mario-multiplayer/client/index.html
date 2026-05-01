@@ -11,8 +11,71 @@
 
 <body>
   <div id="ui-layer">
+    <!-- Auth Screen -->
+    <div id="auth-screen" class="screen active">
+      <div class="mario-logo">
+        <span class="word-super">SUPER</span>
+        <span class="word-mario">MARIO</span>
+        <span class="word-multi">MULTIPLAYER</span>
+      </div>
+      <div class="auth-container">
+        <!-- Login Form -->
+        <div id="login-form" class="auth-form active">
+          <h2 class="retro-title">LOGIN</h2>
+          <div class="input-group">
+            <label>USERNAME:</label>
+            <input type="text" id="login-username" placeholder="ENTER USERNAME" maxlength="20">
+          </div>
+          <div class="input-group">
+            <label>PASSWORD:</label>
+            <input type="password" id="login-password" placeholder="ENTER PASSWORD" maxlength="50">
+          </div>
+          <div id="login-error" class="error-message"></div>
+          <div class="modal-actions">
+            <button id="btn-login" class="mario-btn">LOGIN</button>
+            <button id="btn-switch-signup" class="mario-btn secondary">SIGN UP</button>
+          </div>
+        </div>
+
+        <!-- Sign Up Form -->
+        <div id="signup-form" class="auth-form">
+          <h2 class="retro-title">SIGN UP</h2>
+          <div class="input-group">
+            <label>USERNAME:</label>
+            <input type="text" id="signup-username" placeholder="ENTER USERNAME" maxlength="20">
+          </div>
+          <div class="input-group">
+            <label>EMAIL:</label>
+            <input type="email" id="signup-email" placeholder="ENTER EMAIL" maxlength="50">
+          </div>
+          <div class="input-group">
+            <label>PASSWORD:</label>
+            <input type="password" id="signup-password" placeholder="MIN 6 CHARACTERS" maxlength="50">
+          </div>
+          <div class="input-group">
+            <label>CONFIRM PASSWORD:</label>
+            <input type="password" id="signup-confirm" placeholder="CONFIRM PASSWORD" maxlength="50">
+          </div>
+          <div id="signup-error" class="error-message"></div>
+          <div class="modal-actions">
+            <button id="btn-signup" class="mario-btn">CONFIRM</button>
+            <button id="btn-switch-login" class="mario-btn secondary">BACK TO LOGIN</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Classic Hills and Ground -->
+      <div class="retro-bg-elements">
+        <div class="hill hill-large"></div>
+        <div class="hill hill-small"></div>
+        <div class="ground"></div>
+      </div>
+
+      <div class="footer-info">© 2026 A-Team-Geckos</div>
+    </div>
+
     <!-- Title Screen -->
-    <div id="title-screen" class="screen active">
+    <div id="title-screen" class="screen">
       <div class="mario-logo">
         <span class="word-super">SUPER</span>
         <span class="word-mario">MARIO</span>
@@ -24,6 +87,7 @@
         <button id="btn-multiplayer" class="mario-btn">MULTIPLAYER GAME</button>
         <button id="btn-leaderboard" class="mario-btn">LEADERBOARD</button>
         <button id="btn-settings" class="mario-btn">SETTINGS</button>
+        <button id="btn-logout" class="mario-btn secondary">LOGOUT</button>
       </div>
 
       <!-- Classic Hills and Ground -->
