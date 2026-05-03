@@ -245,7 +245,18 @@
         </div>
         </div>
       </div>
+    <!-- Results Screen -->
+    <div id="results-screen" class="screen">
+      <h2 class="retro-title" id="results-title">MATCH RESULTS</h2>
+      <div id="results-container" class="mario-card" style="max-width: 600px; width: 90%;">
+        <div id="winner-announcement" style="margin-bottom: 20px; color: var(--mario-yellow); font-size: 18px;"></div>
+        <div id="results-list" style="margin-bottom: 30px;">
+          <!-- Results injected here -->
+        </div>
+        <button id="btn-ready-next" class="mario-btn">READY!</button>
+      </div>
     </div>
+
   </div>
 
   <!-- HUD Layer -->
@@ -258,6 +269,10 @@
       <div class="timer-item best">
         <span class="label">BEST</span>
         <span id="best-time">--:--.--</span>
+      </div>
+      <div class="timer-item score">
+        <span class="label">SCORE</span>
+        <span id="current-score">000000</span>
       </div>
     </div>
   </div>

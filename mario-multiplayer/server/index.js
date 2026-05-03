@@ -2,7 +2,7 @@ import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
-import { MAPS, buildLevel, mapConfig, TILE, ITEM_TYPES, getBlockContent, getEnemySpawns } from './map.js';
+import { MAPS, buildLevel, mapConfig, TILE, ITEM_TYPES, getBlockContent, getEnemySpawns, getItemSpawns } from './map.js';
 import { Sequelize, DataTypes } from 'sequelize';
 import { setupAuthRoutes } from './auth.js';
 
@@ -21,19 +21,19 @@ const HighScore = sequelize.define('HighScore', {
 
 // User Model for Authentication
 const User = sequelize.define('User', {
-    username: { 
-        type: DataTypes.STRING, 
-        allowNull: false, 
-        unique: true 
+    username: {
+        type: DataTypes.STRING,
+        allowNull: false,
+        unique: true
     },
-    email: { 
-        type: DataTypes.STRING, 
-        allowNull: false, 
-        unique: true 
+    email: {
+        type: DataTypes.STRING,
+        allowNull: false,
+        unique: true
     },
-    passwordHash: { 
-        type: DataTypes.STRING, 
-        allowNull: false 
+    passwordHash: {
+        type: DataTypes.STRING,
+        allowNull: false
     }
 });
 
@@ -77,7 +77,11 @@ function createLobby(id, name = 'Room', mode = 'Co-op', hostId = null) {
         levelIsRestarting: false,
         currentLevel: initialLevel,
         builtMaps: { [initialLevel]: buildLevel(initialLevel) },
-        spawnedLevels: new Set() // Track which levels have had initial enemies spawned
+        spawnedLevels: new Set(), // Track which levels have had initial enemies spawned
+        totalScore: 0,
+        readyPlayers: {},
+        flagHit: false,
+        isPaused: false
     };
 }
 
@@ -92,6 +96,8 @@ let levelIsRestarting = false;
 // Server Heartbeat (Physics Update)
 setInterval(() => {
     Object.values(lobbies).forEach(lobby => {
+        if (lobby.isPaused) return;
+
         // Group entities by level for efficient broadcasting
         const levelUpdates = {}; // { [levelId]: { itemUpdates, enemyUpdates, fireballUpdates } }
 
@@ -282,6 +288,9 @@ setInterval(() => {
                 const dy = enemy.y - f.y;
                 if (dx * dx + dy * dy < 32 * 32) {
                     deadEnemies.push({ id, reason: 'fireball', levelId });
+                    if (lobby.players[f.ownerId]) {
+                        addPlayerScore(lobby, f.ownerId, 100, enemy.x, enemy.y, levelId);
+                    }
                     delete lobby.activeFireballs[fId];
                     io.to(`${lobby.id}_${levelId}`).emit('fireballDestroyed', fId);
                 }
@@ -295,18 +304,22 @@ setInterval(() => {
                 const dy = Math.abs(enemy.y - player.y);
 
                 const playerHalfHeight = (player.state === 0 ? 32 : 68);
-                const playerHalfWidth = 24; // Slightly narrower hitbox for better feel
+                const playerHalfWidth = 24; // Matches client-side 12 * 4 = 48 (24 half-width)
                 const enemyHalfSize = 32;
 
                 // Basic AABB Collision
                 if (dx < (playerHalfWidth + enemyHalfSize) && dy < (playerHalfHeight + enemyHalfSize)) {
                     if (player.invincible) {
                         deadEnemies.push({ id, reason: 'star', levelId });
+                        addPlayerScore(lobby, pId, 100, enemy.x, enemy.y, levelId);
                     } else if (!player.dead) {
                         const footPos = player.y + playerHalfHeight;
                         // If player is falling OR foot is above the enemy's center line
                         if (player.vy >= 0 && footPos < (enemy.y + 10)) {
                             deadEnemies.push({ id, reason: 'stomped', levelId });
+                            const stompPoints = 100 * (player.stompMultiplier || 1);
+                            addPlayerScore(lobby, pId, stompPoints, enemy.x, enemy.y, levelId);
+                            player.stompMultiplier = (player.stompMultiplier || 1) * 2;
                             io.to(pId).emit('playerBounce');
                         } else {
                             // Damage/Knockback player
@@ -334,8 +347,38 @@ setInterval(() => {
                 return getTileAt(lobby, tx, ty, p.levelId) === TILE.FLAG_POLE;
             });
 
-            if (hitFlag) {
-                EndLevel(lobby);
+            if (hitFlag && !lobby.flagHit) {
+                lobby.flagHit = true;
+                p.finishTimeMs = Date.now() - p.runStartTime;
+
+                // Calculate Flag Score based on height
+                const map = getLobbyMap(lobby, p.levelId);
+                const groundY = map.height * TILE_SIZE - TILE_SIZE;
+                const playerFeetY = p.y + (p.state === 0 ? 32 : 64);
+                const heightInTiles = (groundY - playerFeetY) / TILE_SIZE;
+
+                let points = 100;
+                if (heightInTiles > 8) points = 5000;
+                else if (heightInTiles > 7) points = 2000;
+                else if (heightInTiles > 5) points = 800;
+                else if (heightInTiles > 3) points = 400;
+                else if (heightInTiles > 1) points = 200;
+
+                addPlayerScore(lobby, pId, points, p.x, p.y, p.levelId);
+
+                // Calculate Time Bonus (50 points per second under 2 minutes) - SINGLEPLAYER ONLY
+                if (lobby.mode === 'Singleplayer') {
+                    const timeBudgetMs = 120000;
+                    const timeBonus = Math.max(0, Math.floor((timeBudgetMs - p.finishTimeMs) / 1000) * 50);
+                    if (timeBonus > 0) {
+                        // Small delay for time bonus popup so it doesn't overlap perfectly with flag points
+                        setTimeout(() => {
+                            addPlayerScore(lobby, pId, timeBonus, p.x, p.y - 64, p.levelId);
+                        }, 500);
+                    }
+                }
+
+                io.to(pId).emit('playFlagAnimation', { x: p.x, y: p.y });
             }
         });
 
@@ -373,7 +416,7 @@ setInterval(() => {
                             handlePlayerInjury(lobby, idB, pB.x < pA.x ? -800 : 800);
                         } else if (pB.invincible && !pA.invincible) {
                             handlePlayerInjury(lobby, idA, pA.x < pB.x ? -800 : 800);
-                        } 
+                        }
                         // 2. Stomping Check
                         else {
                             const footA = pA.y + halfHeightA;
@@ -452,6 +495,25 @@ setInterval(() => {
     });
 }, 33); // ~30 FPS
 
+function addPlayerScore(lobby, pId, points, x, y, levelId) {
+    if (lobby.players[pId]) {
+        // Always track individual score
+        lobby.players[pId].score = (lobby.players[pId].score || 0) + points;
+
+        if (lobby.mode === 'Co-op' || lobby.mode === 'Singleplayer') {
+            lobby.totalScore = (lobby.totalScore || 0) + points;
+            io.to(lobby.id).emit('totalScoreUpdate', lobby.totalScore);
+        } else {
+            // In PvP/Chaos, we broadcast individual score updates via playerMoved
+            io.to(lobby.id).emit('playerMoved', lobby.players[pId]);
+        }
+
+        if (x !== undefined && y !== undefined) {
+            io.to(`${lobby.id}_${levelId || lobby.players[pId].levelId}`).emit('scoreGained', { x, y, points });
+        }
+    }
+}
+
 function handlePlayerInjury(lobby, pId, knockbackVX) {
     const player = lobby.players[pId];
     if (!player || player.dead || player.invincible || player.invulnTimer > 0) return;
@@ -481,13 +543,30 @@ function PlayerDie(lobby, pId) {
     p.vy = -1000; // Small hop up
     io.to(`${lobby.id}_${p.levelId}`).emit('playerMoved', p);
 
-    // After a delay, restart the whole level
-    if (lobby.levelIsRestarting) return;
-    lobby.levelIsRestarting = true;
-    setTimeout(() => {
-        RestartLevel(lobby);
-        lobby.levelIsRestarting = false;
-    }, 2000);
+    if (lobby.mode === 'Singleplayer') {
+        if (lobby.levelIsRestarting) return;
+        lobby.levelIsRestarting = true;
+        setTimeout(() => {
+            RestartLevel(lobby);
+            lobby.levelIsRestarting = false;
+        }, 2000);
+    } else {
+        // Check if all active players are dead
+        const activePlayers = Object.values(lobby.players).filter(p => p.levelId);
+        const allDead = activePlayers.length > 0 && activePlayers.every(player => player.dead);
+        
+        console.log(`[Death Check] Lobby: ${lobby.id}, Active: ${activePlayers.length}, AllDead: ${allDead}`);
+        activePlayers.forEach(ap => console.log(`  - Player ${ap.username || ap.id}: dead=${ap.dead}`));
+
+        if (allDead) {
+            if (lobby.levelIsRestarting) return;
+            lobby.levelIsRestarting = true;
+            setTimeout(() => {
+                console.log(`[Game Over] Triggering EndLevel for lobby ${lobby.id}`);
+                EndLevel(lobby);
+            }, 2000);
+        }
+    }
 }
 
 function isSolid(lobby, x, y, levelId) {
@@ -511,15 +590,15 @@ function getLobbyMap(lobby, levelId) {
 
 function WarpPlayer(lobby, pId, warpInfo) {
     if (lobby.levelIsRestarting) return;
-    
+
     const targetLevel = warpInfo.target;
     const socket = io.sockets.sockets.get(pId);
     const oldLevelId = lobby.players[pId].levelId;
 
-    if (lobby.mode === 'Co-op') {
+    if (lobby.mode === 'Co-op' || lobby.mode === 'Singleplayer') {
         console.log(`Warping lobby ${lobby.id} to ${targetLevel} (Co-op)`);
         lobby.currentLevel = targetLevel;
-        
+
         // Broadcast new map to all in lobby
         io.to(lobby.id).emit('initMap', {
             ...getLobbyMap(lobby, targetLevel),
@@ -551,14 +630,15 @@ function WarpPlayer(lobby, pId, warpInfo) {
             io.to(`${lobby.id}_${targetLevel}`).emit('playerMoved', p);
         });
 
-        // Spawn new enemies for everyone
+        // Spawn new enemies and items for everyone
         getEnemySpawns(targetLevel).forEach(spawn => spawnEnemy(lobby, spawn.x, spawn.y, spawn.type, targetLevel));
+        getItemSpawns(targetLevel).forEach(spawn => spawnItem(lobby, spawn.x, spawn.y, spawn.type, targetLevel));
         lobby.spawnedLevels.add(targetLevel);
     } else {
         // PvP / Chaos: Individual Warp
         console.log(`Warping player ${pId} to ${targetLevel} (Individual)`);
         const p = lobby.players[pId];
-        
+
         if (socket) {
             socket.leave(`${lobby.id}_${oldLevelId}`);
             socket.join(`${lobby.id}_${targetLevel}`);
@@ -591,9 +671,10 @@ function WarpPlayer(lobby, pId, warpInfo) {
         socket.emit('initItems', levelItems);
         socket.emit('initEnemies', levelEnemies);
 
-        // Spawn enemies if this level hasn't been visited in this lobby yet
+        // Spawn enemies and items if this level hasn't been visited in this lobby yet
         if (!lobby.spawnedLevels.has(targetLevel)) {
             getEnemySpawns(targetLevel).forEach(spawn => spawnEnemy(lobby, spawn.x, spawn.y, spawn.type, targetLevel));
+            getItemSpawns(targetLevel).forEach(spawn => spawnItem(lobby, spawn.x, spawn.y, spawn.type, targetLevel));
             lobby.spawnedLevels.add(targetLevel);
         }
 
@@ -603,25 +684,25 @@ function WarpPlayer(lobby, pId, warpInfo) {
 }
 
 function EndLevel(lobby) {
-    if (lobby.levelIsRestarting) return;
+    console.log(`[EndLevel] Started for lobby ${lobby.id}`);
     lobby.levelIsRestarting = true;
 
     console.log(`Level Finished in lobby ${lobby.id}! Restarting in 2s...`);
     io.to(lobby.id).emit('levelFinished');
 
     // Calculate times and check for new best
+    // Calculate times and check for new best
     const now = Date.now();
     Object.keys(lobby.players).forEach(async (pId) => {
         const p = lobby.players[pId];
-        if (p.runStartTime && !p.dead) {
-            const elapsed = now - p.runStartTime;
-            
+        if (p && p.runStartTime && !p.dead) {
+            const elapsed = p.finishTimeMs || (now - p.runStartTime);
             try {
                 // Save the score
-                await HighScore.create({ 
+                await HighScore.create({
                     timeMs: elapsed,
                     playerName: p.username || 'Guest',
-                    levelId: lobby.currentLevel
+                    levelId: lobby.currentLevel || 'world-1-1'
                 });
 
                 // Get personal best to send back
@@ -633,33 +714,54 @@ function EndLevel(lobby) {
                 if (personalBest) {
                     io.to(pId).emit('personalBest', personalBest.timeMs);
                 }
-
-                // Check if it's a global best (for server logging or broad notification if desired)
-                const globalBest = await HighScore.findOne({
-                    order: [['timeMs', 'ASC']]
-                });
-                if (globalBest && elapsed <= globalBest.timeMs) {
-                    console.log(`New Global Best: ${elapsed}ms by ${p.username}`);
-                }
             } catch (err) {
                 console.error('Error saving high score:', err);
             }
         }
     });
 
-    setTimeout(() => {
-        RestartLevel(lobby);
-        lobby.levelIsRestarting = false;
-    }, 2000);
+    const shouldShowResults = lobby.mode !== 'Singleplayer';
+
+    if (shouldShowResults) {
+        // Prepare results
+        const results = Object.values(lobby.players).map(p => ({
+            id: p.id,
+            username: p.username || 'Guest',
+            score: p.score || 0,
+            timeMs: p.runStartTime ? (now - p.runStartTime) : 0,
+            dead: !!p.dead
+        }));
+
+        let winner = null;
+        if (lobby.mode === 'PvP' && results.length > 0) {
+            winner = results.reduce((prev, curr) => (curr.score > prev.score && !curr.dead) ? curr : prev, results[0]);
+        }
+
+        console.log(`[EndLevel] Emitting matchResults to ${results.length} players`);
+        Object.keys(lobby.players).forEach(pId => {
+            io.to(pId).emit('matchResults', { 
+                results, 
+                mode: lobby.mode, 
+                winner: winner ? winner.username : null,
+                totalScore: lobby.totalScore || 0
+            });
+        });
+        lobby.readyPlayers = {}; // Reset ready status
+    } else {
+        setTimeout(() => {
+            RestartLevel(lobby);
+            lobby.levelIsRestarting = false;
+        }, 2000);
+    }
 }
 
 function RestartLevel(lobby) {
     const levelId = lobby.currentLevel || 'world-1-1';
-    
+
     // 1. Rebuild map to reset broken blocks/collected coins
     lobby.builtMaps[levelId] = buildLevel(levelId);
     const map = lobby.builtMaps[levelId];
-    
+
     const spawnPos = MAPS[levelId].spawn || { x: 150, y: 700 };
     const spawnType = spawnPos.spawnType || 'none';
 
@@ -683,12 +785,20 @@ function RestartLevel(lobby) {
         p.invulnTimer = 0;
         p.invincible = false;
         p.starPowerTimer = 0;
-        p.runStartTime = Date.now(); 
+        p.runStartTime = Date.now();
+        p.stompMultiplier = 1;
+        p.score = 0;
+        p.finishTimeMs = null;
     });
 
+    lobby.totalScore = 0;
+    io.to(lobby.id).emit('totalScoreUpdate', 0);
+    lobby.levelIsRestarting = false;
+    lobby.flagHit = false; // Reset flag hit state
+
     // 3. BROADCAST MAP INIT
-    io.to(lobby.id).emit('initMap', { 
-        ...map, 
+    io.to(lobby.id).emit('initMap', {
+        ...map,
         warps: MAPS[levelId].warps,
         spawnType,
         spawnX: spawnPos.x,
@@ -702,6 +812,9 @@ function RestartLevel(lobby) {
 
     Object.keys(lobby.activeEnemies).forEach(id => delete lobby.activeEnemies[id]);
     getEnemySpawns(levelId).forEach(spawn => spawnEnemy(lobby, spawn.x, spawn.y, spawn.type, levelId));
+
+    getItemSpawns(levelId).forEach(spawn => spawnItem(lobby, spawn.x, spawn.y, spawn.type, levelId));
+
     lobby.spawnedLevels = new Set([levelId]);
 
     // 5. BROADCAST PLAYER POSITIONS (Now that everyone is in the room)
@@ -733,7 +846,7 @@ io.on('connection', (socket) => {
         if (username) socket.username = username;
         const id = `lobby_${Math.random().toString(36).substr(2, 9)}`;
         lobbies[id] = createLobby(id, name, mode, socket.id);
-        
+
         socket.emit('lobbyCreated', id);
         broadcastLobbyList();
     });
@@ -742,9 +855,12 @@ io.on('connection', (socket) => {
         const lobbyId = typeof data === 'string' ? data : data.lobbyId;
         const username = typeof data === 'string' ? null : data.username;
         if (username) socket.username = username;
-        
+
         const lobby = lobbies[lobbyId];
         if (!lobby) return;
+
+        // Auto-resume if someone joins a paused lobby
+        lobby.isPaused = false;
 
         if (Object.keys(lobby.players).length >= lobby.maxPlayers) {
             socket.emit('joinError', 'Lobby is full');
@@ -760,12 +876,14 @@ io.on('connection', (socket) => {
         socket.lobbyId = lobbyId;
 
         lobby.players[socket.id] = {
-            x: 150, y: 700, id: socket.id, 
+            x: 150, y: 700, id: socket.id,
             username: socket.username || 'Guest',
             anim: 'idle', flipX: false,
             state: 0, vy: 0, invincible: false, starPowerTimer: 0,
             invulnTimer: 0, dead: false, runStartTime: Date.now(),
-            levelId: lobby.currentLevel
+            levelId: lobby.currentLevel,
+            score: 0,
+            stompMultiplier: 1
         };
 
         // Notify lobby members
@@ -815,7 +933,7 @@ io.on('connection', (socket) => {
             targetSocket.emit('kicked');
             targetSocket.leave(lobby.id);
             delete lobby.players[targetId];
-            
+
             io.to(lobby.id).emit('lobbyUpdate', {
                 id: lobby.id,
                 name: lobby.name,
@@ -835,7 +953,7 @@ io.on('connection', (socket) => {
         if (!lobby || lobby.host !== socket.id) return;
 
         lobby.status = 'playing';
-        
+
         // Initial Enemy Spawn for lobby
         if (lobby.spawnedLevels.size === 0 || !lobby.spawnedLevels.has(lobby.currentLevel)) {
             getEnemySpawns(lobby.currentLevel).forEach(spawn => {
@@ -852,10 +970,10 @@ io.on('connection', (socket) => {
             if (!pSocket) return;
 
             pSocket.join(`${lobby.id}_${lobby.currentLevel}`);
-            
+
             const spawnPos = MAPS[lobby.currentLevel].spawn || { x: 150, y: 700 };
-            pSocket.emit('initMap', { 
-                ...getLobbyMap(lobby, lobby.currentLevel), 
+            pSocket.emit('initMap', {
+                ...getLobbyMap(lobby, lobby.currentLevel),
                 warps: MAPS[lobby.currentLevel].warps,
                 spawnType: spawnPos.spawnType || 'none',
                 spawnX: spawnPos.x,
@@ -875,7 +993,7 @@ io.on('connection', (socket) => {
 
             pSocket.emit('initItems', levelItems);
             pSocket.emit('initEnemies', levelEnemies);
-            
+
             // Send personal best on join
             const p = lobby.players[pId];
             if (p) {
@@ -895,7 +1013,7 @@ io.on('connection', (socket) => {
         if (!lobby || lobby.host !== socket.id) return;
 
         io.to(lobby.id).emit('lobbyKilled');
-        
+
         // Make all players leave
         const playerIds = Object.keys(lobby.players);
         playerIds.forEach(pId => {
@@ -944,6 +1062,15 @@ io.on('connection', (socket) => {
             p.y = movementData.y;
             p.anim = movementData.anim;
             p.flipX = movementData.flipX;
+
+            // Reset stomp multiplier if on ground
+            const footX = Math.floor(p.x / TILE_SIZE);
+            const footOffset = (p.state === 0) ? 32 : 64;
+            const footY = Math.floor((p.y + footOffset + 2) / TILE_SIZE);
+            if (isSolid(lobby, footX, footY, p.levelId)) {
+                p.stompMultiplier = 1;
+            }
+
             socket.to(`${socket.lobbyId}_${p.levelId}`).emit('playerMoved', p);
         }
     });
@@ -963,15 +1090,26 @@ io.on('connection', (socket) => {
             if (tileIndex === TILE.BRICK || tileIndex === TILE.QUESTION) {
                 let newTileIndex = tileIndex;
 
-                if (tileIndex === TILE.QUESTION) {
+                if (tileIndex === TILE.BRICK) {
+                    // Break brick if Big (1), Fire (2), or Star Mode (invincible)
+                    if (p.state >= 1 || p.invincible) {
+                        newTileIndex = TILE.EMPTY;
+                        map.data[y][x] = newTileIndex;
+                        // Add 50 points for breaking a brick
+                        addPlayerScore(lobby, socket.id, 50, x * TILE_SIZE + 32, y * TILE_SIZE - 32, p.levelId);
+                    }
+                } else if (tileIndex === TILE.QUESTION) {
                     newTileIndex = TILE.HIT_QUESTION;
                     map.data[y][x] = newTileIndex;
 
-                // Spawn Item
-                const itemType = getBlockContent(x, y, p.levelId, p.state);
-                if (itemType !== ITEM_TYPES.NONE) {
-                    spawnItem(lobby, x * TILE_SIZE + 32, y * TILE_SIZE - 32, itemType, p.levelId);
-                }
+                    // Spawn Item
+                    const itemType = getBlockContent(x, y, p.levelId, p.state);
+                    if (itemType !== ITEM_TYPES.NONE) {
+                        spawnItem(lobby, x * TILE_SIZE + 32, y * TILE_SIZE - 32, itemType, p.levelId);
+                        if (itemType === ITEM_TYPES.COIN) {
+                            addPlayerScore(lobby, socket.id, 100, x * TILE_SIZE + 32, y * TILE_SIZE - 32, p.levelId);
+                        }
+                    }
                 }
 
                 io.to(`${socket.lobbyId}_${p.levelId}`).emit('tileUpdate', { x, y, oldTile: tileIndex, newTile: newTileIndex });
@@ -1028,6 +1166,8 @@ io.on('connection', (socket) => {
                 lobby.players[socket.id].starPowerTimer = 7000;
             }
 
+            addPlayerScore(lobby, socket.id, 100, item.x, item.y, item.levelId);
+
             delete lobby.activeItems[itemId];
             io.to(`${socket.lobbyId}_${item.levelId}`).emit('itemDestroyed', {
                 itemId,
@@ -1073,6 +1213,25 @@ io.on('connection', (socket) => {
         io.to(`${socket.lobbyId}_${p.levelId}`).emit('fireballSpawned', fireball);
     });
 
+    socket.on('playerReadyForNext', () => {
+        const lobby = lobbies[socket.lobbyId];
+        if (!lobby) return;
+
+        lobby.readyPlayers[socket.id] = true;
+
+        const players = Object.keys(lobby.players);
+        const readyCount = Object.keys(lobby.readyPlayers).length;
+
+        io.to(lobby.id).emit('playerReadyUpdate', {
+            readyPlayers: lobby.readyPlayers,
+            totalPlayers: players.length
+        });
+
+        if (readyCount >= players.length) {
+            RestartLevel(lobby);
+        }
+    });
+
     socket.on('requestWarp', () => {
         const pId = socket.id;
         const lobby = lobbies[socket.lobbyId];
@@ -1084,12 +1243,35 @@ io.on('connection', (socket) => {
         const tx = Math.floor(p.x / TILE_SIZE);
         const feetY = p.y + (p.state === 0 ? 32 : 64);
         const ty = Math.floor((feetY + 10) / TILE_SIZE);
-        
+
         const warpCoords = `${tx},${ty}`;
-        const warpInfo = MAPS[lobby.currentLevel].warps[warpCoords];
+        const warpInfo = MAPS[p.levelId].warps[warpCoords];
 
         if (warpInfo) {
             WarpPlayer(lobby, socket.id, warpInfo);
+        }
+    });
+
+    socket.on('finishLevel', () => {
+        const lobby = lobbies[socket.lobbyId];
+        if (lobby) {
+            EndLevel(lobby);
+        }
+    });
+
+    socket.on('pauseGame', () => {
+        const lobby = lobbies[socket.lobbyId];
+        if (lobby && Object.keys(lobby.players).length === 1) {
+            lobby.isPaused = true;
+            console.log(`Lobby ${lobby.id} paused by ${socket.id}`);
+        }
+    });
+
+    socket.on('resumeGame', () => {
+        const lobby = lobbies[socket.lobbyId];
+        if (lobby) {
+            lobby.isPaused = false;
+            console.log(`Lobby ${lobby.id} resumed by ${socket.id}`);
         }
     });
 
@@ -1104,12 +1286,12 @@ function handleDisconnect(socket) {
     if (lobbyId && lobbies[lobbyId]) {
         const lobby = lobbies[lobbyId];
         delete lobby.players[socket.id];
-        
+
         // If the host leaves, either kill the lobby or assign a new host
         if (lobby.host === socket.id) {
             console.log(`Host left lobby ${lobbyId}. Killing lobby.`);
             io.to(lobbyId).emit('lobbyKilled');
-            
+
             // Make everyone leave
             Object.keys(lobby.players).forEach(pId => {
                 const pSocket = io.sockets.sockets.get(pId);
@@ -1123,6 +1305,18 @@ function handleDisconnect(socket) {
             delete lobbies[lobbyId];
         } else {
             io.to(lobbyId).emit('playerDisconnected', socket.id);
+            
+            // If match is active, check if all remaining players are dead
+            if (lobby.status === 'playing' && lobby.mode !== 'Singleplayer' && !lobby.levelIsRestarting) {
+                const activePlayers = Object.values(lobby.players).filter(p => p.levelId);
+                if (activePlayers.length > 0 && activePlayers.every(p => p.dead)) {
+                    lobby.levelIsRestarting = true;
+                    setTimeout(() => {
+                        EndLevel(lobby);
+                    }, 2000);
+                }
+            }
+            
             // Also notify the level room
             Object.keys(MAPS).forEach(levelId => {
                 io.to(`${lobbyId}_${levelId}`).emit('playerDisconnected', socket.id);
@@ -1146,7 +1340,7 @@ function handleDisconnect(socket) {
                 delete lobbies[lobbyId];
             }
         }
-        
+
         broadcastLobbyList();
     }
 }
@@ -1169,6 +1363,12 @@ function spawnItem(lobby, x, y, type, levelId) {
     if (type === ITEM_TYPES.COIN) {
         io.to(`${lobby.id}_${levelId}`).emit('itemSpawned', item);
         return;
+    }
+
+    if (type === ITEM_TYPES.PHYS_COIN) {
+        item.vx = 0;
+        item.vy = 0;
+        // Physical coins don't move
     }
 
     lobby.activeItems[id] = item;
