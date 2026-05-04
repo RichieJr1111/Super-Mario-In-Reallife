@@ -103,6 +103,11 @@ function showScreen(screenId) {
 
   uiLayer.style.display = 'flex';
   console.log(`[UI] Showing screen: ${screenId}, uiLayer display: flex`);
+  if (screenId !== 'leaderboard' && window.leaderboardInterval) {
+    clearInterval(window.leaderboardInterval);
+    window.leaderboardInterval = null;
+  }
+
   if (screenId === 'title') titleScreen.classList.add('active');
   if (screenId === 'lobby') lobbyScreen.classList.add('active');
   if (screenId === 'lobby-waiting') document.getElementById('lobby-waiting-screen').classList.add('active');
@@ -254,7 +259,34 @@ function initSocket() {
     if (bestTimeDisplay) bestTimeDisplay.innerText = formatTime(personalBestTime);
   });
 
-  socket.on('leaderboardData', (scores) => {
+  socket.on('leaderboardData', (data) => {
+    const { scores, nextUpdateInMs, type } = data;
+    const cacheTimer = document.getElementById('cache-timer');
+    const statHeader = document.getElementById('lb-stat-header');
+    
+    // Update Header
+    if (statHeader) {
+      statHeader.innerText = type === 'score' ? 'SCORE' : 'TIME';
+    }
+
+    // Update Timer Display
+    if (cacheTimer) {
+      let remainingS = Math.ceil(nextUpdateInMs / 1000);
+      cacheTimer.innerText = `CACHE REFRESH: ${remainingS}s`;
+      
+      if (window.leaderboardInterval) clearInterval(window.leaderboardInterval);
+      window.leaderboardInterval = setInterval(() => {
+        remainingS--;
+        if (remainingS <= 0) {
+          cacheTimer.innerText = `UPDATING...`;
+          clearInterval(window.leaderboardInterval);
+          refreshLB(); // Auto-refresh when timer hits zero
+        } else {
+          cacheTimer.innerText = `CACHE REFRESH: ${remainingS}s`;
+        }
+      }, 1000);
+    }
+
     leaderboardList.innerHTML = '';
     scores.forEach((score, index) => {
       const tr = document.createElement('tr');
@@ -262,10 +294,12 @@ function initSocket() {
       else if (index === 1) tr.classList.add('rank-silver');
       else if (index === 2) tr.classList.add('rank-bronze');
 
+      const val = type === 'score' ? score.score : formatTime(score.timeMs);
+
       tr.innerHTML = `
                 <td>${index + 1}</td>
                 <td>${score.playerName}</td>
-                <td>${formatTime(score.timeMs)}</td>
+                <td>${val}</td>
             `;
       leaderboardList.appendChild(tr);
     });
@@ -448,9 +482,21 @@ document.getElementById('btn-back-to-title').addEventListener('click', () => {
 });
 
 document.getElementById('btn-leaderboard').addEventListener('click', () => {
-  socket.emit('getLeaderboard');
+  const levelId = document.getElementById('lb-level-select').value;
+  const type = document.getElementById('lb-type-select').value;
+  socket.emit('getLeaderboard', { levelId, type });
   showScreen('leaderboard');
 });
+
+const refreshLB = () => {
+  const levelId = document.getElementById('lb-level-select').value;
+  const type = document.getElementById('lb-type-select').value;
+  socket.emit('getLeaderboard', { levelId, type });
+};
+
+document.getElementById('lb-level-select').addEventListener('change', refreshLB);
+document.getElementById('lb-type-select').addEventListener('change', refreshLB);
+
 
 document.getElementById('btn-back-to-title-lb').addEventListener('click', () => {
   showScreen('title');

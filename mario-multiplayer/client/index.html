@@ -172,16 +172,28 @@
       </div>
     </div>
 
-    <!-- Leaderboard Screen -->
     <div id="leaderboard-screen" class="screen">
       <h2 class="retro-title">TOP TIMES</h2>
+      <div id="cache-timer" style="color: var(--mario-yellow); font-size: 10px; margin-bottom: 10px; text-align: center;">CACHE REFRESH: --s</div>
+      
+      <div class="leaderboard-controls" style="display: flex; gap: 10px; justify-content: center; margin-bottom: 15px;">
+        <select id="lb-level-select" style="padding: 5px; font-family: 'Press Start 2P', cursive; font-size: 8px; background: #000; color: #fff; border: 2px solid #fff;">
+          <option value="world-1-1">WORLD 1-1</option>
+          <option value="underground">UNDERGROUND</option>
+        </select>
+        <select id="lb-type-select" style="padding: 5px; font-family: 'Press Start 2P', cursive; font-size: 8px; background: #000; color: #fff; border: 2px solid #fff;">
+          <option value="time">BY TIME</option>
+          <option value="score">BY SCORE</option>
+        </select>
+      </div>
+
       <div id="leaderboard-container">
         <table id="leaderboard-table">
           <thead>
             <tr>
               <th>RANK</th>
               <th>PLAYER</th>
-              <th>TIME</th>
+              <th id="lb-stat-header">TIME</th>
             </tr>
           </thead>
           <tbody id="leaderboard-list">

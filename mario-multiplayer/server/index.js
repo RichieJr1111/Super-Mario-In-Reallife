@@ -16,8 +16,58 @@ const sequelize = new Sequelize({
 const HighScore = sequelize.define('HighScore', {
     levelId: { type: DataTypes.STRING, defaultValue: 'world-1-1' },
     playerName: { type: DataTypes.STRING, defaultValue: 'Mario' },
-    timeMs: { type: DataTypes.INTEGER, allowNull: false }
+    timeMs: { type: DataTypes.INTEGER, allowNull: false },
+    score: { type: DataTypes.INTEGER, defaultValue: 0 }
 });
+
+// Cache for leaderboard (Cache-Aside pattern)
+// Key format: `${levelId}_${type}` where type is 'time' or 'score'
+let leaderboardCaches = {};
+const CACHE_TTL = 60000; // 60 seconds
+let lastGlobalRefresh = Date.now();
+
+// Global background refresh (Scheduled Refresh pattern)
+async function refreshAllLeaderboards() {
+    console.log('[Background] Refreshing all leaderboards...');
+    const levels = ['world-1-1', 'underground'];
+    const types = ['time', 'score'];
+
+    for (const levelId of levels) {
+        for (const type of types) {
+            const cacheKey = `${levelId}_${type}`;
+            try {
+                let scores;
+                if (type === 'score') {
+                    scores = await HighScore.findAll({
+                        where: { levelId },
+                        attributes: ['playerName', [sequelize.fn('MAX', sequelize.col('score')), 'score']],
+                        group: ['playerName'],
+                        order: [[sequelize.literal('score'), 'DESC']],
+                        limit: 50
+                    });
+                } else {
+                    scores = await HighScore.findAll({
+                        where: { levelId },
+                        attributes: ['playerName', [sequelize.fn('MIN', sequelize.col('timeMs')), 'timeMs']],
+                        group: ['playerName'],
+                        order: [[sequelize.literal('timeMs'), 'ASC']],
+                        limit: 50
+                    });
+                }
+                leaderboardCaches[cacheKey] = scores;
+            } catch (err) {
+                console.error(`Failed to refresh cache ${cacheKey}:`, err);
+            }
+        }
+    }
+    lastGlobalRefresh = Date.now();
+}
+
+// Run refresh every 60s
+setInterval(refreshAllLeaderboards, CACHE_TTL);
+// Initial fetch
+initDb().then(() => refreshAllLeaderboards());
+
 
 // User Model for Authentication
 const User = sequelize.define('User', {
@@ -39,7 +89,7 @@ const User = sequelize.define('User', {
 
 async function initDb() {
     try {
-        await sequelize.sync();
+        await sequelize.sync({ alter: true });
     } catch (err) {
         console.error('Database init error:', err);
     }
@@ -691,16 +741,16 @@ function EndLevel(lobby) {
     io.to(lobby.id).emit('levelFinished');
 
     // Calculate times and check for new best
-    // Calculate times and check for new best
     const now = Date.now();
-    Object.keys(lobby.players).forEach(async (pId) => {
+    const savePromises = Object.keys(lobby.players).map(async (pId) => {
         const p = lobby.players[pId];
         if (p && p.runStartTime && !p.dead) {
             const elapsed = p.finishTimeMs || (now - p.runStartTime);
             try {
-                // Save the score
+                // Persistent Store (Write-Back)
                 await HighScore.create({
                     timeMs: elapsed,
+                    score: p.score || 0,
                     playerName: p.username || 'Guest',
                     levelId: lobby.currentLevel || 'world-1-1'
                 });
@@ -719,6 +769,13 @@ function EndLevel(lobby) {
             }
         }
     });
+
+    // Wait for all saves to finish (Write-Back synchronization)
+    Promise.all(savePromises).then(() => {
+        console.log(`[EndLevel] All scores persisted for lobby ${lobby.id}`);
+        refreshAllLeaderboards(); // Update cache once after all saves
+    });
+
 
     const shouldShowResults = lobby.mode !== 'Singleplayer';
 
@@ -1034,18 +1091,21 @@ io.on('connection', (socket) => {
         handleDisconnect(socket);
     });
 
-    socket.on('getLeaderboard', async () => {
+    socket.on('getLeaderboard', async (query = {}) => {
+        const { levelId = 'world-1-1', type = 'time' } = query;
+        const cacheKey = `${levelId}_${type}`;
+
         try {
-            const scores = await HighScore.findAll({
-                attributes: [
-                    'playerName',
-                    [sequelize.fn('MIN', sequelize.col('timeMs')), 'timeMs']
-                ],
-                group: ['playerName'],
-                order: [[sequelize.literal('timeMs'), 'ASC']],
-                limit: 100
+            const now = Date.now();
+            const scores = leaderboardCaches[cacheKey] || [];
+            const nextUpdateInMs = CACHE_TTL - (now - lastGlobalRefresh);
+
+            socket.emit('leaderboardData', { 
+                scores, 
+                nextUpdateInMs: Math.max(0, nextUpdateInMs),
+                levelId,
+                type
             });
-            socket.emit('leaderboardData', scores);
         } catch (err) {
             console.error('Error fetching leaderboard:', err);
         }
