@@ -3,7 +3,7 @@ services:
     name: mario-server
     runtime: node
     plan: free
-    buildCommand: "cd mario-multiplayer && npm install && cd client && npm install && npm run build && cd ../server && npm install"
+    buildCommand: "cd mario-multiplayer/client && npm install && npm run build && cd ../server && npm install"
     startCommand: "cd mario-multiplayer/server && npm start"
     envVars:
       - key: NODE_ENV
