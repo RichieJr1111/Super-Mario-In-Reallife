@@ -137,7 +137,8 @@ function showScreen(screenId) {
 
 function initSocket() {
   if (socket) return;
-  socket = io('http://localhost:3000');
+  const serverUrl = process.env.VITE_SERVER_URL || 'http://localhost:3000';
+  socket = io(serverUrl);
 
   socket.on('lobbyList', (lobbies) => {
     lobbyList.innerHTML = '';

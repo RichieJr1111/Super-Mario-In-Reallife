@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: mario-server
+    runtime: node
+    plan: free
+    buildCommand: "cd mario-multiplayer/server && npm install"
+    startCommand: "cd mario-multiplayer/server && npm start"
+    envVars:
+      - key: NODE_ENV
+        value: production
+
+  - type: static
+    name: mario-client
+    plan: free
+    buildCommand: "cd mario-multiplayer/client && npm install && npm run build"
+    staticPublishPath: mario-multiplayer/client/dist
+    routes:
+      - path: "/*"
+        destination: /index.html
+    envVars:
+      - key: VITE_SERVER_URL
+        fromService:
+          type: web
+          name: mario-server
+          property: url

@@ -37,6 +37,11 @@ out/
 .env.production.local
 *.env*
 
+# Database files
+database.sqlite
+*.sqlite
+*.db
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
