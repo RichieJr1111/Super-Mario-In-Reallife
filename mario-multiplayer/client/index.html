@@ -138,7 +138,9 @@
             <label>MAP:</label>
             <select id="lobby-map-select" disabled>
               <option value="world-1-1">WORLD 1-1</option>
-              <option value="underground">UNDERGROUND</option>
+              <option value="world-1-2">WORLD 1-2</option>
+              <option value="battle-arena">BATTLE ARENA</option>
+              <option value="sky-race">SKY RACE</option>
             </select>
           </div>
           <div class="lobby-setting">
@@ -179,7 +181,9 @@
       <div class="leaderboard-controls" style="display: flex; gap: 10px; justify-content: center; margin-bottom: 15px;">
         <select id="lb-level-select" style="padding: 5px; font-family: 'Press Start 2P', cursive; font-size: 8px; background: #000; color: #fff; border: 2px solid #fff;">
           <option value="world-1-1">WORLD 1-1</option>
-          <option value="underground">UNDERGROUND</option>
+          <option value="world-1-2">WORLD 1-2</option>
+          <option value="battle-arena">BATTLE ARENA</option>
+          <option value="sky-race">SKY RACE</option>
         </select>
         <select id="lb-type-select" style="padding: 5px; font-family: 'Press Start 2P', cursive; font-size: 8px; background: #000; color: #fff; border: 2px solid #fff;">
           <option value="time">BY TIME</option>
@@ -203,6 +207,38 @@
       </div>
       <div class="lobby-actions">
         <button id="btn-back-to-title-lb" class="mario-btn secondary">BACK</button>
+      </div>
+    </div>
+
+    <!-- Singleplayer Selection Modal -->
+    <div id="singleplayer-modal" class="modal">
+      <div class="modal-content mario-card">
+        <h3 class="retro-title">SELECT MODE</h3>
+        <div class="menu-options" style="gap: 15px;">
+          <button id="btn-sp-normal" class="mario-btn">NORMAL MODE</button>
+          <button id="btn-sp-speedrun" class="mario-btn">SPEEDRUN MODE</button>
+          <button id="btn-close-sp-modal" class="mario-btn secondary">CANCEL</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Speedrun Level Selection Modal -->
+    <div id="speedrun-level-modal" class="modal">
+      <div class="modal-content mario-card">
+        <h3 class="retro-title">SELECT LEVEL</h3>
+        <div class="input-group" style="margin-bottom: 20px;">
+          <label>LEVEL:</label>
+          <select id="speedrun-level-select">
+            <option value="world-1-1">WORLD 1-1</option>
+            <option value="world-1-2">WORLD 1-2</option>
+            <option value="battle-arena">BATTLE ARENA</option>
+            <option value="sky-race">SKY RACE</option>
+          </select>
+        </div>
+        <div class="menu-options" style="gap: 15px;">
+          <button id="btn-sp-speedrun-confirm" class="mario-btn">START ATTEMPT</button>
+          <button id="btn-close-sp-level-modal" class="mario-btn secondary">BACK</button>
+        </div>
       </div>
     </div>
 

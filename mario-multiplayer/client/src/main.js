@@ -76,6 +76,24 @@ const gameMenuModal = document.getElementById('game-menu-modal');
 const currentTimeDisplay = document.getElementById('current-time');
 const bestTimeDisplay = document.getElementById('best-time');
 const currentScoreDisplay = document.getElementById('current-score');
+const timerDisplay = document.getElementById('timer-display');
+const singleplayerModal = document.getElementById('singleplayer-modal');
+const speedrunLevelModal = document.getElementById('speedrun-level-modal');
+const speedrunLevelSelect = document.getElementById('speedrun-level-select');
+
+function setTimerRunning(running, hideIfStopped = true) {
+  isTimerRunning = running;
+  if (timerDisplay) {
+    if (running) {
+      timerDisplay.classList.remove('hidden');
+    } else if (hideIfStopped) {
+      timerDisplay.classList.add('hidden');
+    }
+  }
+}
+
+// Initial sync
+setTimerRunning(isTimerRunning);
 
 // Auth DOM
 const authScreen = document.getElementById('auth-screen');
@@ -263,7 +281,7 @@ function initSocket() {
     const { scores, nextUpdateInMs, type } = data;
     const cacheTimer = document.getElementById('cache-timer');
     const statHeader = document.getElementById('lb-stat-header');
-    
+
     // Update Header
     if (statHeader) {
       statHeader.innerText = type === 'score' ? 'SCORE' : 'TIME';
@@ -273,7 +291,7 @@ function initSocket() {
     if (cacheTimer) {
       let remainingS = Math.ceil(nextUpdateInMs / 1000);
       cacheTimer.innerText = `CACHE REFRESH: ${remainingS}s`;
-      
+
       if (window.leaderboardInterval) clearInterval(window.leaderboardInterval);
       window.leaderboardInterval = setInterval(() => {
         remainingS--;
@@ -314,20 +332,20 @@ function initSocket() {
   socket.on('matchResults', (data) => {
     console.log('[Socket] matchResults received:', data);
     lastMatchResults = data;
-    
+
     try {
       // Restore solid UI background for results
       document.body.classList.remove('in-game');
       showScreen('results');
-      
+
       if (winnerAnnouncement) {
         winnerAnnouncement.innerText = data.winner ? `WINNER: ${data.winner}` : '';
       }
-      
+
       renderResults(data);
       btnReadyNext.disabled = false;
       btnReadyNext.innerText = 'READY!';
-  
+
       if (game && game.scene && game.scene.scenes[0]) {
         game.scene.scenes[0].physics.world.pause();
       }
@@ -464,12 +482,45 @@ document.getElementById('btn-logout').addEventListener('click', () => {
 
 // UI Event Listeners
 document.getElementById('btn-singleplayer').addEventListener('click', () => {
+  singleplayerModal.classList.add('active');
+});
+
+document.getElementById('btn-sp-normal').addEventListener('click', () => {
   isSinglePlayer = true;
   socket.emit('createLobby', { name: 'Singleplayer', mode: 'Singleplayer', username: currentUser });
-  // For singleplayer, we want to start immediately
   socket.once('lobbyUpdate', () => {
     socket.emit('startMatch');
   });
+  singleplayerModal.classList.remove('active');
+});
+
+document.getElementById('btn-sp-speedrun').addEventListener('click', () => {
+  singleplayerModal.classList.remove('active');
+  speedrunLevelModal.classList.add('active');
+});
+
+document.getElementById('btn-sp-speedrun-confirm').addEventListener('click', () => {
+  const selectedLevel = speedrunLevelSelect.value;
+  isSinglePlayer = true;
+  socket.emit('createLobby', { 
+    name: 'Speedrun', 
+    mode: 'Speedrun', 
+    username: currentUser,
+    map: selectedLevel
+  });
+  socket.once('lobbyUpdate', () => {
+    socket.emit('startMatch');
+  });
+  speedrunLevelModal.classList.remove('active');
+});
+
+document.getElementById('btn-close-sp-level-modal').addEventListener('click', () => {
+  speedrunLevelModal.classList.remove('active');
+  singleplayerModal.classList.add('active');
+});
+
+document.getElementById('btn-close-sp-modal').addEventListener('click', () => {
+  singleplayerModal.classList.remove('active');
 });
 
 document.getElementById('btn-multiplayer').addEventListener('click', () => {
@@ -584,7 +635,7 @@ function toggleGameMenu() {
       if (socket) socket.emit('resumeGame');
     }
     if (player && !player.levelFinished && !player.dead) {
-      isTimerRunning = true;
+      setTimerRunning(true);
     }
     if (!createModal.classList.contains('active') && !settingsModal.classList.contains('active')) {
       uiLayer.style.display = 'none';
@@ -592,7 +643,7 @@ function toggleGameMenu() {
   } else {
     uiLayer.style.display = 'flex';
     gameMenuModal.classList.add('active');
-    isTimerRunning = false;
+    setTimerRunning(false);
     if (shouldPauseState) {
       scene.physics.world.pause();
       scene.anims.pauseAll();
@@ -661,9 +712,9 @@ function handleInitMap(mapData) {
     if (!mapData.isWarp) {
       runTime = 0;
     }
-    isTimerRunning = true;
+    setTimerRunning(true);
   } else {
-    isTimerRunning = false;
+    setTimerRunning(false);
   }
 
   // Clear all sprite groups to prevent "traces" of old objects
@@ -801,7 +852,7 @@ function create() {
       player.setVelocity(0, 0);
       player.setAcceleration(0, 0);
     }
-    isTimerRunning = false;
+    setTimerRunning(false, false);
   });
 
   socket.on('playFlagAnimation', (data) => {
@@ -1023,7 +1074,7 @@ function create() {
         e.x = u.x;
         e.y = u.y;
         e.flipX = u.vx > 0;
-        if (e.anims) e.anims.play('goomba_walk', true);
+        if (e.anims && e.type === 'goomba') e.anims.play('goomba_walk', true);
       }
     });
   });
@@ -1032,8 +1083,19 @@ function create() {
     const e = enemies.getChildren().find(sprite => sprite.id === data.id);
     if (e) {
       if (data.reason === 'stomped') {
-        e.anims.play('goomba_flat');
-        this.time.delayedCall(200, () => e.destroy());
+        if (e.type === 'goomba') {
+          e.anims.play('goomba_flat');
+          this.time.delayedCall(200, () => e.destroy());
+        } else {
+          // Block enemy stomp: just shrink and destroy
+          this.tweens.add({
+            targets: e,
+            scaleY: 0.1,
+            alpha: 0,
+            duration: 200,
+            onComplete: () => e.destroy()
+          });
+        }
       } else {
         // Fireball or other: Flip away
         e.setTint(0xff0000);
@@ -1108,6 +1170,9 @@ function createItemSprite(scene, item) {
 
 function createEnemySprite(scene, enemy) {
   let frame = 200; // Goomba
+  if (enemy.type === 'blockenemy' && enemy.frame !== undefined) {
+    frame = enemy.frame;
+  }
   const sprite = scene.add.sprite(enemy.x, enemy.y, 'tiles', frame).setScale(1);
   sprite.id = enemy.id;
   sprite.type = enemy.type;
@@ -1324,13 +1389,14 @@ function update(time, delta) {
       otherPlayer.setPosition(newX, newY);
 
       // Apply jump frame offsets
-      const isJumping = otherPlayer.anims.currentAnim && otherPlayer.anims.currentAnim.key.includes('jump');
+        const isJumping = otherPlayer.anims.currentAnim && otherPlayer.anims.currentAnim.key.includes('jump');
 
-      if (isJumping) {
-        const jumpHeight = (otherPlayer.state === 0) ? 16 : 32;
-        otherPlayer.setSize(12, jumpHeight);
-        otherPlayer.setOffset(otherPlayer.flipX ? 2 : 6, 0);
-      } else {
+        if (isJumping) {
+          const jumpHeight = (otherPlayer.state === 0) ? 14 : 28;
+          const jumpOffset = (otherPlayer.state === 0) ? 2 : 4;
+          otherPlayer.setSize(12, jumpHeight);
+          otherPlayer.setOffset(otherPlayer.flipX ? 2 : 6, jumpOffset);
+        } else {
         if (otherPlayer.state === 0) {
           if (otherPlayer.body.height !== 16) otherPlayer.setSize(12, 16);
         } else {
@@ -1412,7 +1478,7 @@ function update(time, delta) {
       }
 
       if (player.dead || player.levelFinished) {
-        isTimerRunning = false;
+        setTimerRunning(false, false);
       }
       return;
     }
@@ -1498,9 +1564,10 @@ function update(time, delta) {
           player.anims.play(getAnimKey('jump', state), true);
         }
 
-        const jumpHeight = (state === 0) ? 16 : 32;
+        const jumpHeight = (state === 0) ? 14 : 28;
+        const jumpOffset = (state === 0) ? 2 : 4;
         player.setSize(12, jumpHeight);
-        player.setOffset(player.flipX ? 2 : 6, 0);
+        player.setOffset(player.flipX ? 2 : 6, jumpOffset);
       } else if (isGrounded) {
         if (state === 0) {
           if (player.body.height !== 16) player.setSize(12, 16);
@@ -1626,7 +1693,7 @@ function playFlagAnimation(scene, sprite, startX, startY) {
   sprite.isAnimating = true;
   sprite.body.setAllowGravity(false);
   sprite.setVelocity(0, 0);
-  isTimerRunning = false;
+  setTimerRunning(false, false);
 
   // Find ground Y
   let groundY = startY;

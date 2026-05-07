@@ -400,6 +400,14 @@ body.in-game #hud-layer {
   flex-direction: column;
   gap: 10px;
   text-align: right;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+  opacity: 1;
+}
+
+.in-game-ui.hidden {
+  opacity: 0;
+  transform: translateY(-20px);
+  pointer-events: none;
 }
 
 .timer-item {
