@@ -137,7 +137,10 @@ function showScreen(screenId) {
 
 function initSocket() {
   if (socket) return;
-  const serverUrl = process.env.VITE_SERVER_URL || 'http://localhost:3000';
+  // In production, use the same origin. In dev, use localhost:3000
+  const serverUrl = window.location.hostname === 'localhost' 
+    ? 'http://localhost:3000' 
+    : window.location.origin;
   socket = io(serverUrl);
 
   socket.on('lobbyList', (lobbies) => {

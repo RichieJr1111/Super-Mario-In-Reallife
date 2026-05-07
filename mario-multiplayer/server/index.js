@@ -2,6 +2,9 @@ import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
+import path from 'path';
+import { fileURLToPath } from 'url';
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import { MAPS, buildLevel, mapConfig, TILE, ITEM_TYPES, getBlockContent, getEnemySpawns, getItemSpawns } from './map.js';
 import { Sequelize, DataTypes } from 'sequelize';
 import { setupAuthRoutes } from './auth.js';
@@ -99,7 +102,17 @@ initDb();
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// Setup auth routes BEFORE static file serving
 setupAuthRoutes(app, User);
+
+// Serve static client files
+app.use(express.static(path.join(__dirname, '../client/dist')));
+
+// Fallback to index.html for client-side routing
+app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, '../client/dist/index.html'));
+});
 const server = createServer(app);
 const io = new Server(server, {
     cors: { origin: "*" }
