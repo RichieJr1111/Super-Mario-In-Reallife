@@ -1,0 +1,6 @@
+{
+  "type": "module",
+  "scripts": {
+    "start:deploy": "npm install --prefix mario-multiplayer/client && npm run build --prefix mario-multiplayer/client && npm install --prefix mario-multiplayer/server && node mario-multiplayer/server/index.js"
+  }
+}
