@@ -1,6 +1,7 @@
 {
   "type": "module",
+  "name": "mario-root",
   "scripts": {
-    "start:deploy": "npm install --prefix mario-multiplayer/client --production=false && npm run build --prefix mario-multiplayer/client && npm install --prefix mario-multiplayer/server && npm rebuild --prefix mario-multiplayer/server && node mario-multiplayer/server/index.js"
+    "install-all": "npm install && npm install --prefix mario-multiplayer/client && npm install --prefix mario-multiplayer/server"
   }
 }
