@@ -631,7 +631,71 @@ body.in-game #hud-layer {
   color: white;
 }
 
+/* Results screen ready status */
 .results-item .ready-status.waiting {
   background: #666;
   color: #ccc;
+}
+
+/* Admin Panel Styles */
+.admin-table-container {
+  background: var(--mario-black);
+  border: 4px solid var(--mario-white);
+  width: 90%;
+  max-width: 900px;
+  max-height: 400px;
+  overflow-y: auto;
+  margin: 0 auto 30px auto;
+  box-shadow: 10px 10px 0px rgba(0,0,0,0.5);
+}
+
+.admin-table-container table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.admin-table-container th {
+  background: #333;
+  color: var(--mario-yellow);
+  padding: 15px;
+  border-bottom: 4px solid white;
+  font-size: 12px;
+  position: sticky;
+  top: 0;
+}
+
+.admin-table-container td {
+  padding: 12px 15px;
+  border-bottom: 2px solid #222;
+  font-size: 10px;
+  color: white;
+}
+
+.admin-view {
+  display: none;
+  width: 100%;
+}
+
+.admin-view.active {
+  display: block;
+}
+
+.mario-btn.small {
+  font-size: 10px;
+  padding: 5px 10px;
+}
+
+.mario-btn.small.active {
+  background: var(--mario-yellow);
+  color: black;
+}
+
+.delete-user-btn, .delete-score-btn {
+  background: var(--mario-red) !important;
+  border: 2px solid white !important;
+}
+
+.delete-user-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }

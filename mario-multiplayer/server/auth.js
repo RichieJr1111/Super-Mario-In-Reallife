@@ -79,7 +79,8 @@ export function setupAuthRoutes(app, User) {
                 message: 'Login successful',
                 userId: user.id,
                 username: user.username,
-                email: user.email
+                email: user.email,
+                isAdmin: user.isAdmin
             });
         } catch (error) {
             console.error('Login error:', error);

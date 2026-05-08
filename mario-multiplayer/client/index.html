@@ -87,6 +87,7 @@
         <button id="btn-multiplayer" class="mario-btn">MULTIPLAYER GAME</button>
         <button id="btn-leaderboard" class="mario-btn">LEADERBOARD</button>
         <button id="btn-settings" class="mario-btn">SETTINGS</button>
+        <button id="btn-admin-panel" class="mario-btn" style="display: none; background: #e74c3c;">ADMIN PANEL</button>
         <button id="btn-logout" class="mario-btn secondary">LOGOUT</button>
       </div>
 
@@ -211,6 +212,56 @@
       </div>
       <div class="lobby-actions">
         <button id="btn-back-to-title-lb" class="mario-btn secondary">BACK</button>
+      </div>
+    </div>
+
+    <!-- Admin Screen -->
+    <div id="admin-screen" class="screen">
+      <h2 class="retro-title">ADMIN PANEL</h2>
+      
+      <div class="admin-tabs" style="display: flex; gap: 10px; justify-content: center; margin-bottom: 20px;">
+        <button id="btn-admin-users-tab" class="mario-btn small active">USERS</button>
+        <button id="btn-admin-scores-tab" class="mario-btn small">SCORES</button>
+      </div>
+
+      <div id="admin-users-view" class="admin-view active">
+        <div class="admin-table-container">
+          <table id="admin-users-table">
+            <thead>
+              <tr>
+                <th>USERNAME</th>
+                <th>EMAIL</th>
+                <th>ROLE</th>
+                <th>ACTION</th>
+              </tr>
+            </thead>
+            <tbody id="admin-users-list">
+              <!-- Users will be injected here -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="admin-scores-view" class="admin-view">
+        <div class="admin-table-container">
+          <table id="admin-scores-table">
+            <thead>
+              <tr>
+                <th>PLAYER</th>
+                <th>LEVEL</th>
+                <th>SCORE/TIME</th>
+                <th>ACTION</th>
+              </tr>
+            </thead>
+            <tbody id="admin-scores-list">
+              <!-- Scores will be injected here -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="lobby-actions">
+        <button id="btn-back-to-title-admin" class="mario-btn secondary">BACK</button>
       </div>
     </div>
 

@@ -108,9 +108,19 @@ const btnReadyNext = document.getElementById('btn-ready-next');
 
 let currentLobbyMode = 'Co-op';
 let lastMatchResults = null;
+let isAdmin = false;
+
+const adminScreen = document.getElementById('admin-screen');
+const adminUsersView = document.getElementById('admin-users-view');
+const adminScoresView = document.getElementById('admin-scores-view');
+const adminUsersList = document.getElementById('admin-users-list');
+const adminScoresList = document.getElementById('admin-scores-list');
+const btnAdminPanel = document.getElementById('btn-admin-panel');
+const btnAdminUsersTab = document.getElementById('btn-admin-users-tab');
+const btnAdminScoresTab = document.getElementById('btn-admin-scores-tab');
 
 function showScreen(screenId) {
-  [titleScreen, lobbyScreen, leaderboardScreen, document.getElementById('lobby-waiting-screen'), authScreen, resultsScreen].forEach(s => {
+  [titleScreen, lobbyScreen, leaderboardScreen, document.getElementById('lobby-waiting-screen'), authScreen, resultsScreen, adminScreen].forEach(s => {
     if (s) s.classList.remove('active');
   });
 
@@ -132,6 +142,7 @@ function showScreen(screenId) {
   if (screenId === 'leaderboard') leaderboardScreen.classList.add('active');
   if (screenId === 'auth') authScreen.classList.add('active');
   if (screenId === 'results') resultsScreen.classList.add('active');
+  if (screenId === 'admin') adminScreen.classList.add('active');
 }
 
 
@@ -401,6 +412,7 @@ initSocket();
 
 // Authentication Logic
 let currentUser = null;
+let currentUserId = null;
 
 async function handleLogin() {
   const username = document.getElementById('login-username').value;
@@ -418,7 +430,15 @@ async function handleLogin() {
 
     if (response.ok) {
       currentUser = data.username;
+      currentUserId = data.userId;
+      isAdmin = data.isAdmin || false;
+      
       socket.emit('registerUsername', currentUser);
+      
+      if (btnAdminPanel) {
+        btnAdminPanel.style.display = isAdmin ? 'block' : 'none';
+      }
+      
       showScreen('title');
     } else {
       loginError.innerText = data.error || 'LOGIN FAILED';
@@ -604,6 +624,121 @@ document.getElementById('btn-leave-lobby').addEventListener('click', () => {
   socket.emit('leaveLobby');
   showScreen('lobby');
 });
+
+// Admin Panel Listeners
+btnAdminPanel.addEventListener('click', () => {
+  showScreen('admin');
+  switchAdminTab('users');
+});
+
+btnAdminUsersTab.addEventListener('click', () => switchAdminTab('users'));
+btnAdminScoresTab.addEventListener('click', () => switchAdminTab('scores'));
+
+document.getElementById('btn-back-to-title-admin').addEventListener('click', () => {
+  showScreen('title');
+});
+
+async function switchAdminTab(tab) {
+  if (tab === 'users') {
+    btnAdminUsersTab.classList.add('active');
+    btnAdminScoresTab.classList.remove('active');
+    adminUsersView.classList.add('active');
+    adminScoresView.classList.remove('active');
+    await fetchAdminUsers();
+  } else {
+    btnAdminUsersTab.classList.remove('active');
+    btnAdminScoresTab.classList.add('active');
+    adminUsersView.classList.remove('active');
+    adminScoresView.classList.add('active');
+    await fetchAdminScores();
+  }
+}
+
+async function fetchAdminUsers() {
+  try {
+    const response = await fetch(`${SERVER_URL}/api/admin/users`, {
+      headers: { 'x-user-id': currentUserId }
+    });
+    if (!response.ok) throw new Error('Failed to fetch');
+    const users = await response.json();
+    adminUsersList.innerHTML = '';
+    users.forEach(u => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${u.username}</td>
+        <td>${u.email}</td>
+        <td>${u.isAdmin ? 'ADMIN' : 'USER'}</td>
+        <td>
+          <button class="mario-btn small delete-user-btn" data-id="${u.id}" ${u.username === currentUser ? 'disabled' : ''}>DELETE</button>
+        </td>
+      `;
+      adminUsersList.appendChild(tr);
+    });
+
+    document.querySelectorAll('.delete-user-btn').forEach(btn => {
+      btn.onclick = () => deleteUser(btn.dataset.id);
+    });
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+async function fetchAdminScores() {
+  try {
+    const response = await fetch(`${SERVER_URL}/api/admin/scores`, {
+      headers: { 'x-user-id': currentUserId }
+    });
+    if (!response.ok) throw new Error('Failed to fetch');
+    const scores = await response.json();
+    adminScoresList.innerHTML = '';
+    scores.forEach(s => {
+      const tr = document.createElement('tr');
+      const val = `S: ${s.score || 0} | T: ${formatTime(s.timeMs)}`;
+      tr.innerHTML = `
+        <td>${s.playerName}</td>
+        <td>${s.levelId}</td>
+        <td>${val}</td>
+        <td>
+          <button class="mario-btn small delete-score-btn" data-id="${s.id}">DELETE</button>
+        </td>
+      `;
+      adminScoresList.appendChild(tr);
+    });
+
+    document.querySelectorAll('.delete-score-btn').forEach(btn => {
+      btn.onclick = () => deleteScore(btn.dataset.id);
+    });
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+async function deleteUser(id) {
+  if (!confirm('Are you sure? This will delete the user and all their scores!')) return;
+  try {
+    const response = await fetch(`${SERVER_URL}/api/admin/users/${id}`, {
+      method: 'DELETE',
+      headers: { 'x-user-id': currentUserId }
+    });
+    if (response.ok) fetchAdminUsers();
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+async function deleteScore(id) {
+  if (!confirm('Are you sure you want to delete this score?')) return;
+  try {
+    const response = await fetch(`${SERVER_URL}/api/admin/scores/${id}`, {
+      method: 'DELETE',
+      headers: { 'x-user-id': currentUserId }
+    });
+    if (response.ok) fetchAdminScores();
+  } catch (err) {
+    console.error(err);
+  }
+}
+
 
 document.getElementById('btn-settings').addEventListener('click', () => {
   settingsModal.classList.add('active');
