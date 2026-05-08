@@ -135,13 +135,13 @@ function showScreen(screenId) {
 }
 
 
+const SERVER_URL = window.location.hostname === 'localhost' 
+  ? 'http://localhost:3000' 
+  : window.location.origin;
+
 function initSocket() {
   if (socket) return;
-  // In production, use the same origin. In dev, use localhost:3000
-  const serverUrl = window.location.hostname === 'localhost' 
-    ? 'http://localhost:3000' 
-    : window.location.origin;
-  socket = io(serverUrl);
+  socket = io(SERVER_URL);
 
   socket.on('lobbyList', (lobbies) => {
     lobbyList.innerHTML = '';
@@ -408,7 +408,7 @@ async function handleLogin() {
   loginError.innerText = '';
 
   try {
-    const response = await fetch('http://localhost:3000/api/auth/login', {
+    const response = await fetch(`${SERVER_URL}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password })
@@ -441,7 +441,7 @@ async function handleSignup() {
   }
 
   try {
-    const response = await fetch('http://localhost:3000/api/auth/signup', {
+    const response = await fetch(`${SERVER_URL}/api/auth/signup`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, email, password })
