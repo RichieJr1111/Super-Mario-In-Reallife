@@ -377,12 +377,52 @@ function renderResults(data) {
 
 initSocket();
 
+// ===== COOKIE UTILITIES =====
+const COOKIE_EXPIRES_DAYS = 30;
+
+function setCookie(name, value, days = COOKIE_EXPIRES_DAYS) {
+    const date = new Date();
+    date.setTime(date.getTime() + (days * 24 * 60 * 60 * 1000));
+    const expires = "expires=" + date.toUTCString();
+    document.cookie = name + "=" + encodeURIComponent(value) + ";" + expires + ";path=/;SameSite=Strict";
+}
+
+function getCookie(name) {
+    const nameEQ = name + "=";
+    const cookies = document.cookie.split(';');
+    for (let cookie of cookies) {
+        cookie = cookie.trim();
+        if (cookie.indexOf(nameEQ) === 0) {
+            return decodeURIComponent(cookie.substring(nameEQ.length));
+        }
+    }
+    return null;
+}
+
+function deleteCookie(name) {
+    setCookie(name, "", -1);
+}
+
+// Load saved credentials from cookies
+function loadSavedCredentials() {
+    const rememberMe = getCookie('mario_remember_me');
+    if (rememberMe === 'true') {
+        const savedUsername = getCookie('mario_username');
+        if (savedUsername) {
+            document.getElementById('login-username').value = savedUsername;
+            document.getElementById('remember-me-checkbox').checked = true;
+        }
+    }
+}
+
+// ===== AUTHENTICATION LOGIC =====
 // Authentication Logic
 let currentUser = null;
 
 async function handleLogin() {
   const username = document.getElementById('login-username').value;
   const password = document.getElementById('login-password').value;
+  const rememberMe = document.getElementById('remember-me-checkbox').checked;
   loginError.innerText = '';
 
   try {
@@ -396,6 +436,16 @@ async function handleLogin() {
 
     if (response.ok) {
       currentUser = data.username;
+      
+      // Save credentials if "Remember Me" is checked
+      if (rememberMe) {
+        setCookie('mario_remember_me', 'true', COOKIE_EXPIRES_DAYS);
+        setCookie('mario_username', username, COOKIE_EXPIRES_DAYS);
+      } else {
+        deleteCookie('mario_remember_me');
+        deleteCookie('mario_username');
+      }
+      
       socket.emit('registerUsername', currentUser);
       showScreen('title');
     } else {
@@ -1664,3 +1714,8 @@ function playFlagAnimation(scene, sprite, startX, startY) {
     }
   });
 }
+
+// Load saved credentials on page load
+window.addEventListener('load', () => {
+  loadSavedCredentials();
+});

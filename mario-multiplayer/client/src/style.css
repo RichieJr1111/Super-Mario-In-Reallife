@@ -347,6 +347,29 @@ body.in-game #ui-layer {
   color: #999;
 }
 
+.checkbox-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  justify-content: flex-start;
+}
+
+.checkbox-group input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+  accent-color: var(--mario-red);
+}
+
+.checkbox-group label {
+  font-size: 11px;
+  color: var(--mario-yellow);
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
 .error-message {
   color: #FF6B6B;
   font-size: 11px;
