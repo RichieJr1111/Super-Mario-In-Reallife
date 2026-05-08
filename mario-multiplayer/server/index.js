@@ -89,20 +89,11 @@ const User = sequelize.define('User', {
         type: DataTypes.STRING,
         allowNull: false
     },
-    sessionToken: {
-        type: DataTypes.STRING,
-        allowNull: true
+    isAdmin: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: false
     }
 });
-
-async function initDb() {
-    try {
-        await sequelize.sync({ alter: true });
-    } catch (err) {
-        console.error('Database init error:', err);
-    }
-}
-initDb();
 
 const app = express();
 app.use(cors());
@@ -110,6 +101,81 @@ app.use(express.json());
 
 // Setup auth routes BEFORE static file serving
 setupAuthRoutes(app, User);
+
+// Admin Middleware
+const adminMiddleware = async (req, res, next) => {
+    const userId = req.headers['x-user-id'];
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+    try {
+        const user = await User.findByPk(userId);
+        if (user && user.isAdmin) {
+            next();
+        } else {
+            res.status(403).json({ error: 'Forbidden: Admin access required' });
+        }
+    } catch (error) {
+        res.status(500).json({ error: 'Internal server error' });
+    }
+};
+
+// Admin Routes
+app.get('/api/admin/users', adminMiddleware, async (req, res) => {
+    try {
+        const users = await User.findAll({
+            attributes: ['id', 'username', 'email', 'isAdmin', 'createdAt']
+        });
+        res.json(users);
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to fetch users' });
+    }
+});
+
+app.get('/api/admin/scores', adminMiddleware, async (req, res) => {
+    try {
+        const scores = await HighScore.findAll({
+            order: [['createdAt', 'DESC']],
+            limit: 100
+        });
+        res.json(scores);
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to fetch scores' });
+    }
+});
+
+app.delete('/api/admin/users/:id', adminMiddleware, async (req, res) => {
+    try {
+        const user = await User.findByPk(req.params.id);
+        if (!user) return res.status(404).json({ error: 'User not found' });
+        
+        await HighScore.destroy({ where: { playerName: user.username } });
+        await user.destroy();
+        
+        res.json({ message: 'User and their scores deleted successfully' });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to delete user' });
+    }
+});
+
+app.delete('/api/admin/scores/:id', adminMiddleware, async (req, res) => {
+    try {
+        const score = await HighScore.findByPk(req.params.id);
+        if (!score) return res.status(404).json({ error: 'Score not found' });
+        await score.destroy();
+        res.json({ message: 'Score deleted successfully' });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to delete score' });
+    }
+});
+
+async function initDb() {
+    try {
+        await sequelize.sync();
+    } catch (err) {
+        console.error('Database init error:', err);
+    }
+}
+initDb();
 
 // Serve static client files
 app.use(express.static(path.join(__dirname, '../client/dist')));
@@ -159,6 +225,30 @@ function createLobby(id, name = 'Room', mode = 'Co-op', hostId = null) {
     }
     
     return lobby;
+}
+
+function closeLobby(lobbyId, notify = true) {
+    const lobby = lobbies[lobbyId];
+    if (!lobby) return;
+
+    if (notify) {
+        io.to(lobby.id).emit('lobbyKilled');
+    }
+
+    const playerIds = Object.keys(lobby.players);
+    playerIds.forEach(pId => {
+        const pSocket = io.sockets.sockets.get(pId);
+        if (pSocket) {
+            pSocket.leave(lobby.id);
+            if (lobby.players[pId].levelId) {
+                pSocket.leave(`${lobby.id}_${lobby.players[pId].levelId}`);
+            }
+            delete pSocket.lobbyId;
+        }
+    });
+
+    delete lobbies[lobbyId];
+    broadcastLobbyList();
 }
 
 // Physics Constants
@@ -875,16 +965,36 @@ function EndLevel(lobby) {
         if (p && p.runStartTime && !p.dead) {
             const elapsed = p.finishTimeMs || (now - p.runStartTime);
             try {
-                // Persistent Store (Write-Back)
-                await HighScore.create({
-                    timeMs: elapsed,
-                    score: p.score || 0,
-                    playerName: p.username || 'Guest',
-                    levelId: lobby.currentLevel || 'world-1-1'
+                // Get personal bests to check if this run is a new best
+                const existingBest = await HighScore.findOne({
+                    where: { 
+                        playerName: p.username || 'Guest',
+                        levelId: lobby.currentLevel || 'world-1-1'
+                    },
+                    attributes: [
+                        [sequelize.fn('MIN', sequelize.col('timeMs')), 'bestTime'],
+                        [sequelize.fn('MAX', sequelize.col('score')), 'bestScore']
+                    ],
+                    raw: true
                 });
 
-                // Get personal best to send back
-                const personalBest = await HighScore.findOne({
+                const isNewTimeBest = !existingBest || !existingBest.bestTime || elapsed < existingBest.bestTime;
+                const isNewScoreBest = !existingBest || !existingBest.bestScore || (p.score || 0) > existingBest.bestScore;
+
+                if (isNewTimeBest || isNewScoreBest) {
+                    await HighScore.create({
+                        timeMs: elapsed,
+                        score: p.score || 0,
+                        playerName: p.username || 'Guest',
+                        levelId: lobby.currentLevel || 'world-1-1'
+                    });
+                    console.log(`[Score] Saved new best for ${p.username || 'Guest'}: Time=${elapsed}ms, Score=${p.score || 0}`);
+                } else {
+                    console.log(`[Score] Run for ${p.username || 'Guest'} not a personal best. Not saved.`);
+                }
+
+                // Send back the absolute personal best time for the UI
+                const finalBest = await HighScore.findOne({
                     where: { 
                         playerName: p.username || 'Guest',
                         levelId: lobby.currentLevel || 'world-1-1'
@@ -892,8 +1002,8 @@ function EndLevel(lobby) {
                     order: [['timeMs', 'ASC']]
                 });
 
-                if (personalBest) {
-                    io.to(pId).emit('personalBest', personalBest.timeMs);
+                if (finalBest) {
+                    io.to(pId).emit('personalBest', finalBest.timeMs);
                 }
             } catch (err) {
                 console.error('Error saving high score:', err);
@@ -941,7 +1051,19 @@ function EndLevel(lobby) {
                 if (lobby.currentLevel === 'world-1-1') {
                     lobby.currentLevel = 'world-1-2';
                 } else if (lobby.currentLevel === 'world-1-2') {
-                    lobby.currentLevel = 'world-1-1';
+                    lobby.currentLevel = 'world-1-3';
+                } else if (lobby.currentLevel === 'world-1-3') {
+                    lobby.currentLevel = 'world-2-1';
+                } else if (lobby.currentLevel === 'world-2-1') {
+                    // Emit win event instead of immediate restart
+                    io.to(lobby.id).emit('gameWon');
+                    lobby.levelIsRestarting = false;
+                    
+                    // Close the lobby automatically after win screen shows
+                    setTimeout(() => {
+                        closeLobby(lobby.id, false); // Don't notify with alert, just cleanup
+                    }, 1000);
+                    return; // Stop the timeout
                 }
             } else if (lobby.mode === 'Speedrun') {
                 // Keep the same level for speedrun attempts
@@ -1245,22 +1367,7 @@ io.on('connection', (socket) => {
         const lobby = lobbies[socket.lobbyId];
         if (!lobby || lobby.host !== socket.id) return;
 
-        io.to(lobby.id).emit('lobbyKilled');
-
-        // Make all players leave
-        const playerIds = Object.keys(lobby.players);
-        playerIds.forEach(pId => {
-            const pSocket = io.sockets.sockets.get(pId);
-            if (pSocket) {
-                pSocket.leave(lobby.id);
-                if (lobby.players[pId].levelId) {
-                    pSocket.leave(`${lobby.id}_${lobby.players[pId].levelId}`);
-                }
-            }
-        });
-
-        delete lobbies[lobby.id];
-        broadcastLobbyList();
+        closeLobby(lobby.id, true);
     });
 
     socket.on('leaveLobby', () => {

@@ -5,8 +5,12 @@ import './style.css';
 const config = {
   type: Phaser.AUTO,
   width: 800,
-  height: 600,
+  height: 450,
   parent: 'app',
+  scale: {
+    mode: Phaser.Scale.ENVELOP,
+    autoCenter: Phaser.Scale.CENTER_BOTH
+  },
   pixelArt: true,
   roundPixels: true,
   antialias: false,
@@ -108,9 +112,20 @@ const btnReadyNext = document.getElementById('btn-ready-next');
 
 let currentLobbyMode = 'Co-op';
 let lastMatchResults = null;
+let isAdmin = false;
+
+const adminScreen = document.getElementById('admin-screen');
+const adminUsersView = document.getElementById('admin-users-view');
+const adminScoresView = document.getElementById('admin-scores-view');
+const adminUsersList = document.getElementById('admin-users-list');
+const adminScoresList = document.getElementById('admin-scores-list');
+const btnAdminPanel = document.getElementById('btn-admin-panel');
+const btnAdminUsersTab = document.getElementById('btn-admin-users-tab');
+const btnAdminScoresTab = document.getElementById('btn-admin-scores-tab');
+const victoryScreen = document.getElementById('victory-screen');
 
 function showScreen(screenId) {
-  [titleScreen, lobbyScreen, leaderboardScreen, document.getElementById('lobby-waiting-screen'), authScreen, resultsScreen].forEach(s => {
+  [titleScreen, lobbyScreen, leaderboardScreen, document.getElementById('lobby-waiting-screen'), authScreen, resultsScreen, adminScreen, victoryScreen].forEach(s => {
     if (s) s.classList.remove('active');
   });
 
@@ -132,11 +147,13 @@ function showScreen(screenId) {
   if (screenId === 'leaderboard') leaderboardScreen.classList.add('active');
   if (screenId === 'auth') authScreen.classList.add('active');
   if (screenId === 'results') resultsScreen.classList.add('active');
+  if (screenId === 'admin') adminScreen.classList.add('active');
+  if (screenId === 'victory') victoryScreen.classList.add('active');
 }
 
 
-const SERVER_URL = window.location.hostname === 'localhost' 
-  ? 'http://localhost:3000' 
+const SERVER_URL = window.location.hostname === 'localhost'
+  ? 'http://localhost:3000'
   : window.location.origin;
 
 function initSocket() {
@@ -363,6 +380,15 @@ function initSocket() {
       renderResults({ ...lastMatchResults, readyPlayers: data.readyPlayers });
     }
   });
+
+  socket.on('gameWon', () => {
+    console.log('[Victory] Game Won event received!');
+    document.body.classList.remove('in-game');
+    showScreen('victory');
+    if (game && game.scene && game.scene.scenes[0]) {
+      game.scene.scenes[0].physics.world.pause();
+    }
+  });
 }
 
 function renderResults(data) {
@@ -399,104 +425,35 @@ function renderResults(data) {
 
 initSocket();
 
-// ===== COOKIE UTILITIES =====
-const COOKIE_EXPIRES_DAYS = 30;
-
-function setCookie(name, value, days = COOKIE_EXPIRES_DAYS) {
-    const date = new Date();
-    date.setTime(date.getTime() + (days * 24 * 60 * 60 * 1000));
-    const expires = "expires=" + date.toUTCString();
-    document.cookie = name + "=" + encodeURIComponent(value) + ";" + expires + ";path=/;SameSite=Strict";
-}
-
-function getCookie(name) {
-    const nameEQ = name + "=";
-    const cookies = document.cookie.split(';');
-    for (let cookie of cookies) {
-        cookie = cookie.trim();
-        if (cookie.indexOf(nameEQ) === 0) {
-            return decodeURIComponent(cookie.substring(nameEQ.length));
-        }
-    }
-    return null;
-}
-
-function deleteCookie(name) {
-    setCookie(name, "", -1);
-}
-
-// Load saved credentials from cookies
-async function loadSavedCredentials() {
-    const rememberMe = getCookie('mario_remember_me');
-    const savedUsername = getCookie('mario_username');
-    const sessionToken = getCookie('mario_session_token');
-
-    if (rememberMe === 'true' && savedUsername) {
-        document.getElementById('login-username').value = savedUsername;
-        document.getElementById('remember-me-checkbox').checked = true;
-
-        if (sessionToken) {
-            console.log('[Auth] Attempting auto-login...');
-            try {
-                const response = await fetch(`${SERVER_URL}/api/auth/auto-login`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username: savedUsername, sessionToken })
-                });
-
-                const data = await response.json();
-                if (response.ok) {
-                    console.log('[Auth] Auto-login successful!');
-                    currentUser = data.username;
-                    socket.emit('registerUsername', currentUser);
-                    showScreen('title');
-                } else {
-                    console.warn('[Auth] Auto-login failed:', data.error);
-                    deleteCookie('mario_session_token'); // Clear invalid token
-                }
-            } catch (err) {
-                console.error('[Auth] Auto-login error:', err);
-            }
-        }
-    }
-}
-
-// ===== AUTHENTICATION LOGIC =====
 // Authentication Logic
 let currentUser = null;
+let currentUserId = null;
 
 async function handleLogin() {
   const username = document.getElementById('login-username').value;
   const password = document.getElementById('login-password').value;
-  const rememberMe = document.getElementById('remember-me-checkbox').checked;
   loginError.innerText = '';
 
   try {
     const response = await fetch(`${SERVER_URL}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password, rememberMe })
+      body: JSON.stringify({ username, password })
     });
 
     const data = await response.json();
 
     if (response.ok) {
       currentUser = data.username;
-      
-      // Save credentials if "Remember Me" is checked
-      if (rememberMe) {
-        setCookie('mario_remember_me', 'true', COOKIE_EXPIRES_DAYS);
-        setCookie('mario_username', username, COOKIE_EXPIRES_DAYS);
-        if (data.sessionToken) {
-          setCookie('mario_session_token', data.sessionToken, COOKIE_EXPIRES_DAYS);
-        }
-      } else {
-        deleteCookie('mario_remember_me');
-        deleteCookie('mario_username');
-        deleteCookie('mario_session_token');
-      }
+      currentUserId = data.userId;
+      isAdmin = data.isAdmin || false;
       
       socket.emit('registerUsername', currentUser);
+      
+      if (btnAdminPanel) {
+        btnAdminPanel.style.display = isAdmin ? 'block' : 'none';
+      }
+      
       showScreen('title');
     } else {
       loginError.innerText = data.error || 'LOGIN FAILED';
@@ -558,7 +515,6 @@ document.getElementById('btn-switch-login').addEventListener('click', () => {
 
 document.getElementById('btn-logout').addEventListener('click', () => {
   currentUser = null;
-  deleteCookie('mario_session_token'); // Prevent auto-login after manual logout
   showScreen('auth');
 });
 
@@ -585,9 +541,9 @@ document.getElementById('btn-sp-speedrun').addEventListener('click', () => {
 document.getElementById('btn-sp-speedrun-confirm').addEventListener('click', () => {
   const selectedLevel = speedrunLevelSelect.value;
   isSinglePlayer = true;
-  socket.emit('createLobby', { 
-    name: 'Speedrun', 
-    mode: 'Speedrun', 
+  socket.emit('createLobby', {
+    name: 'Speedrun',
+    mode: 'Speedrun',
     username: currentUser,
     map: selectedLevel
   });
@@ -683,6 +639,129 @@ document.getElementById('btn-leave-lobby').addEventListener('click', () => {
   socket.emit('leaveLobby');
   showScreen('lobby');
 });
+
+// Admin Panel Listeners
+btnAdminPanel.addEventListener('click', () => {
+  showScreen('admin');
+  switchAdminTab('users');
+});
+
+btnAdminUsersTab.addEventListener('click', () => switchAdminTab('users'));
+btnAdminScoresTab.addEventListener('click', () => switchAdminTab('scores'));
+
+document.getElementById('btn-back-to-title-admin').addEventListener('click', () => {
+  showScreen('title');
+});
+
+document.getElementById('btn-victory-back').addEventListener('click', () => {
+  showScreen('title');
+  if (game) {
+    game.destroy(true);
+    game = null;
+  }
+});
+
+async function switchAdminTab(tab) {
+  if (tab === 'users') {
+    btnAdminUsersTab.classList.add('active');
+    btnAdminScoresTab.classList.remove('active');
+    adminUsersView.classList.add('active');
+    adminScoresView.classList.remove('active');
+    await fetchAdminUsers();
+  } else {
+    btnAdminUsersTab.classList.remove('active');
+    btnAdminScoresTab.classList.add('active');
+    adminUsersView.classList.remove('active');
+    adminScoresView.classList.add('active');
+    await fetchAdminScores();
+  }
+}
+
+async function fetchAdminUsers() {
+  try {
+    const response = await fetch(`${SERVER_URL}/api/admin/users`, {
+      headers: { 'x-user-id': currentUserId }
+    });
+    if (!response.ok) throw new Error('Failed to fetch');
+    const users = await response.json();
+    adminUsersList.innerHTML = '';
+    users.forEach(u => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${u.username}</td>
+        <td>${u.email}</td>
+        <td>${u.isAdmin ? 'ADMIN' : 'USER'}</td>
+        <td>
+          <button class="mario-btn small delete-user-btn" data-id="${u.id}" ${u.username === currentUser ? 'disabled' : ''}>DELETE</button>
+        </td>
+      `;
+      adminUsersList.appendChild(tr);
+    });
+
+    document.querySelectorAll('.delete-user-btn').forEach(btn => {
+      btn.onclick = () => deleteUser(btn.dataset.id);
+    });
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+async function fetchAdminScores() {
+  try {
+    const response = await fetch(`${SERVER_URL}/api/admin/scores`, {
+      headers: { 'x-user-id': currentUserId }
+    });
+    if (!response.ok) throw new Error('Failed to fetch');
+    const scores = await response.json();
+    adminScoresList.innerHTML = '';
+    scores.forEach(s => {
+      const tr = document.createElement('tr');
+      const val = `S: ${s.score || 0} | T: ${formatTime(s.timeMs)}`;
+      tr.innerHTML = `
+        <td>${s.playerName}</td>
+        <td>${s.levelId}</td>
+        <td>${val}</td>
+        <td>
+          <button class="mario-btn small delete-score-btn" data-id="${s.id}">DELETE</button>
+        </td>
+      `;
+      adminScoresList.appendChild(tr);
+    });
+
+    document.querySelectorAll('.delete-score-btn').forEach(btn => {
+      btn.onclick = () => deleteScore(btn.dataset.id);
+    });
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+async function deleteUser(id) {
+  if (!confirm('Are you sure? This will delete the user and all their scores!')) return;
+  try {
+    const response = await fetch(`${SERVER_URL}/api/admin/users/${id}`, {
+      method: 'DELETE',
+      headers: { 'x-user-id': currentUserId }
+    });
+    if (response.ok) fetchAdminUsers();
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+async function deleteScore(id) {
+  if (!confirm('Are you sure you want to delete this score?')) return;
+  try {
+    const response = await fetch(`${SERVER_URL}/api/admin/scores/${id}`, {
+      method: 'DELETE',
+      headers: { 'x-user-id': currentUserId }
+    });
+    if (response.ok) fetchAdminScores();
+  } catch (err) {
+    console.error(err);
+  }
+}
+
 
 document.getElementById('btn-settings').addEventListener('click', () => {
   settingsModal.classList.add('active');
@@ -1521,14 +1600,14 @@ function update(time, delta) {
       otherPlayer.setPosition(newX, newY);
 
       // Apply jump frame offsets
-        const isJumping = otherPlayer.anims.currentAnim && otherPlayer.anims.currentAnim.key.includes('jump');
+      const isJumping = otherPlayer.anims.currentAnim && otherPlayer.anims.currentAnim.key.includes('jump');
 
-        if (isJumping) {
-          const jumpHeight = (otherPlayer.state === 0) ? 14 : 28;
-          const jumpOffset = (otherPlayer.state === 0) ? 2 : 4;
-          otherPlayer.setSize(12, jumpHeight);
-          otherPlayer.setOffset(otherPlayer.flipX ? 2 : 6, jumpOffset);
-        } else {
+      if (isJumping) {
+        const jumpHeight = (otherPlayer.state === 0) ? 14 : 28;
+        const jumpOffset = (otherPlayer.state === 0) ? 2 : 4;
+        otherPlayer.setSize(12, jumpHeight);
+        otherPlayer.setOffset(otherPlayer.flipX ? 2 : 6, jumpOffset);
+      } else {
         if (otherPlayer.state === 0) {
           if (otherPlayer.body.height !== 16) otherPlayer.setSize(12, 16);
         } else {
@@ -1863,8 +1942,3 @@ function playFlagAnimation(scene, sprite, startX, startY) {
     }
   });
 }
-
-// Load saved credentials on page load
-window.addEventListener('load', () => {
-  loadSavedCredentials();
-});

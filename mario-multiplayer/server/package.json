@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "node index.js",
     "start": "node index.js",
+    "reset-leaderboards": "node scripts/reset-leaderboards.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
