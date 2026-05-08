@@ -1,5 +1,6 @@
 import express from 'express';
 import bcryptjs from 'bcryptjs';
+import crypto from 'crypto';
 
 const router = express.Router();
 const SALT_ROUNDS = 10;
@@ -52,7 +53,7 @@ export function setupAuthRoutes(app, User) {
     // Login
     app.post('/api/auth/login', async (req, res) => {
         try {
-            const { username, password } = req.body;
+            const { username, password, rememberMe } = req.body;
 
             // Validation
             if (!username || !password) {
@@ -75,14 +76,50 @@ export function setupAuthRoutes(app, User) {
                 return res.status(401).json({ error: 'Invalid username or password' });
             }
 
+            let sessionToken = null;
+            if (rememberMe) {
+                sessionToken = crypto.randomBytes(32).toString('hex');
+                await user.update({ sessionToken });
+            }
+
             res.json({
                 message: 'Login successful',
+                userId: user.id,
+                username: user.username,
+                email: user.email,
+                sessionToken: sessionToken
+            });
+        } catch (error) {
+            console.error('Login error:', error);
+            res.status(500).json({ error: 'Internal server error' });
+        }
+    });
+
+    // Auto-Login (Token Verification)
+    app.post('/api/auth/auto-login', async (req, res) => {
+        try {
+            const { username, sessionToken } = req.body;
+
+            if (!username || !sessionToken) {
+                return res.status(400).json({ error: 'Username and token are required' });
+            }
+
+            const user = await User.findOne({
+                where: { username, sessionToken }
+            });
+
+            if (!user) {
+                return res.status(401).json({ error: 'Invalid or expired session' });
+            }
+
+            res.json({
+                message: 'Auto-login successful',
                 userId: user.id,
                 username: user.username,
                 email: user.email
             });
         } catch (error) {
-            console.error('Login error:', error);
+            console.error('Auto-login error:', error);
             res.status(500).json({ error: 'Internal server error' });
         }
     });

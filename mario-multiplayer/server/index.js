@@ -88,12 +88,16 @@ const User = sequelize.define('User', {
     passwordHash: {
         type: DataTypes.STRING,
         allowNull: false
+    },
+    sessionToken: {
+        type: DataTypes.STRING,
+        allowNull: true
     }
 });
 
 async function initDb() {
     try {
-        await sequelize.sync();
+        await sequelize.sync({ alter: true });
     } catch (err) {
         console.error('Database init error:', err);
     }
