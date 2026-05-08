@@ -1077,10 +1077,37 @@ function create() {
       if (e) {
         e.x = u.x;
         e.y = u.y;
-        e.flipX = u.vx > 0;
-        if (e.anims && e.type === 'goomba') e.anims.play('goomba_walk', true);
+        if (u.state) e.enemyState = u.state;
+
+        if (e.type === 'goomba') {
+          e.anims.play('goomba_walk', true);
+        } else if (e.type === 'koopa') {
+          if (e.enemyState === 'shell-still' || e.enemyState === 'shell-rolling') {
+            e.anims.play('koopa_shell', true);
+          } else {
+            e.anims.play('koopa_walk', true);
+          }
+          if (u.vx !== undefined) e.flipX = u.vx > 0;
+        } else if (e.type === 'piranha') {
+          e.anims.play('piranha_walk', true);
+        }
       }
     });
+  });
+
+  socket.on('enemyMoved', (u) => {
+    const e = enemies.getChildren().find(sprite => sprite.id === u.id);
+    if (e) {
+      e.setPosition(u.x, u.y);
+      if (u.state) e.enemyState = u.state;
+      if (e.type === 'koopa') {
+        if (e.enemyState === 'shell-still' || e.enemyState === 'shell-rolling') {
+          e.anims.play('koopa_shell', true);
+        } else {
+          e.anims.play('koopa_walk', true);
+        }
+      }
+    }
   });
 
   socket.on('enemyDestroyed', (data) => {
@@ -1174,14 +1201,19 @@ function createItemSprite(scene, item) {
 
 function createEnemySprite(scene, enemy) {
   let frame = 200; // Goomba
+  if (enemy.type === 'koopa') frame = 203;
+  if (enemy.type === 'piranha') frame = 210;
   if (enemy.type === 'blockenemy' && enemy.frame !== undefined) {
     frame = enemy.frame;
   }
   const sprite = scene.add.sprite(enemy.x, enemy.y, 'tiles', frame).setScale(1);
   sprite.id = enemy.id;
   sprite.type = enemy.type;
-  sprite.setDepth(4);
   if (enemies) enemies.add(sprite);
+  if (enemy.type === 'piranha') {
+    if (sprite.body) sprite.body.setAllowGravity(false);
+    sprite.setDepth(1);
+  }
 }
 
 function handleTileCollision(obj1, tile) {
@@ -1288,6 +1320,23 @@ function setupAnimations(scene) {
     repeat: -1
   });
   scene.anims.create({ key: 'goomba_flat', frames: [{ key: 'tiles', frame: 202 }], frameRate: 10 });
+
+  // Koopa
+  scene.anims.create({
+    key: 'koopa_walk',
+    frames: scene.anims.generateFrameNumbers('tiles', { start: 203, end: 204 }),
+    frameRate: 6,
+    repeat: -1
+  });
+  scene.anims.create({ key: 'koopa_shell', frames: [{ key: 'tiles', frame: 205 }], frameRate: 10 });
+
+  // Piranha Plant
+  scene.anims.create({
+    key: 'piranha_walk',
+    frames: scene.anims.generateFrameNumbers('tiles', { start: 210, end: 211 }),
+    frameRate: 4,
+    repeat: -1
+  });
 }
 
 function applyPlayerState(p, state) {

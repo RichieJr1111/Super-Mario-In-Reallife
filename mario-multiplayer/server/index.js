@@ -333,28 +333,55 @@ setInterval(() => {
             const levelId = enemy.levelId || 'world-1-1';
             if (!levelUpdates[levelId]) levelUpdates[levelId] = { itemUpdates: [], enemyUpdates: [], fireballUpdates: [] };
 
-            // Horizontal movement
-            enemy.x += enemy.vx;
+            // Piranha Plant Logic (Vertical oscillation)
+            if (enemy.type === 'piranha') {
+                if (!enemy.timer) enemy.timer = 0;
+                enemy.timer += 33;
+                
+                // Simple oscillation: 2s down (hidden), 2s up (visible)
+                const cycle = enemy.timer % 4000;
+                const baseY = enemy.startY || enemy.y;
+                if (!enemy.startY) enemy.startY = baseY;
 
-            // Horizontal Collision detection
-            const tileX = Math.floor((enemy.x + (enemy.vx > 0 ? 32 : -32)) / TILE_SIZE);
-            const tileY = Math.floor(enemy.y / TILE_SIZE);
+                if (cycle < 2000) {
+                    // Coming up (0 to 1000ms) then staying up (1000 to 2000ms)
+                    const sub = Math.min(1000, cycle);
+                    enemy.y = (baseY + 64) - (sub / 1000) * 64;
+                } else {
+                    // Going down (2000 to 3000ms) then staying down (3000 to 4000ms)
+                    const sub = Math.min(1000, cycle - 2000);
+                    enemy.y = baseY + (sub / 1000) * 64;
+                }
+                // No early return! Need to check player collisions.
+            } else {
+                // Regular Enemy Logic (Horizontal movement + Gravity)
+                
+                // Horizontal movement
+                if (enemy.state !== 'shell-still') {
+                    enemy.x += enemy.vx;
+                }
 
-            if (isSolid(lobby, tileX, tileY, levelId)) {
-                enemy.vx *= -1;
-            }
+                // Horizontal Collision detection
+                const sideOffset = (enemy.type === 'koopa' && enemy.state !== 'walking') ? 24 : 32;
+                const tileX = Math.floor((enemy.x + (enemy.vx > 0 ? sideOffset : -sideOffset)) / TILE_SIZE);
+                const tileY = Math.floor(enemy.y / TILE_SIZE);
 
-            // Vertical movement (Gravity)
-            enemy.vy += GRAVITY;
-            enemy.y += enemy.vy;
+                if (isSolid(lobby, tileX, tileY, levelId)) {
+                    enemy.vx *= -1;
+                }
 
-            // Vertical Collision detection
-            const footX = Math.floor(enemy.x / TILE_SIZE);
-            const footY = Math.floor((enemy.y + 32) / TILE_SIZE);
+                // Vertical movement (Gravity) - Shells and Walking enemies
+                enemy.vy += GRAVITY;
+                enemy.y += enemy.vy;
 
-            if (isSolid(lobby, footX, footY, levelId)) {
-                enemy.y = footY * TILE_SIZE - 32;
-                enemy.vy = 0;
+                // Vertical Collision detection
+                const footX = Math.floor(enemy.x / TILE_SIZE);
+                const footY = Math.floor((enemy.y + 32) / TILE_SIZE);
+
+                if (isSolid(lobby, footX, footY, levelId)) {
+                    enemy.y = footY * TILE_SIZE - 32;
+                    enemy.vy = 0;
+                }
             }
 
             // Check Fireball Collisions
@@ -372,6 +399,22 @@ setInterval(() => {
                     io.to(`${lobby.id}_${levelId}`).emit('fireballDestroyed', fId);
                 }
             });
+
+            // Check Shell-Rolling Collisions with other enemies
+            if (enemy.type === 'koopa' && enemy.state === 'shell-rolling') {
+                Object.keys(lobby.activeEnemies).forEach(otherId => {
+                    if (id === otherId) return;
+                    const other = lobby.activeEnemies[otherId];
+                    if (other.levelId !== levelId) return;
+                    const dx = Math.abs(enemy.x - other.x);
+                    const dy = Math.abs(enemy.y - other.y);
+                    if (dx < 64 && dy < 64) {
+                        deadEnemies.push({ id: otherId, reason: 'shell', levelId });
+                        // Add score to whoever kicked the shell? (We don't track that easily, but let's assume current player or just team)
+                        io.to(`${lobby.id}_${levelId}`).emit('enemyDestroyed', { id: otherId, reason: 'shell', levelId });
+                    }
+                });
+            }
 
             // Check Player Collisions
             Object.keys(lobby.players).forEach(pId => {
@@ -393,20 +436,52 @@ setInterval(() => {
                         const footPos = player.y + playerHalfHeight;
                         // If player is falling OR foot is above the enemy's center line
                         if (player.vy >= 0 && footPos < (enemy.y + 10)) {
-                            deadEnemies.push({ id, reason: 'stomped', levelId });
-                            const stompPoints = 100 * (player.stompMultiplier || 1);
-                            addPlayerScore(lobby, pId, stompPoints, enemy.x, enemy.y, levelId);
-                            player.stompMultiplier = (player.stompMultiplier || 1) * 2;
-                            io.to(pId).emit('playerBounce');
+                            // Stomp Logic
+                            if (enemy.type === 'piranha') {
+                                // Piranha plants cannot be stomped! Hurt player instead.
+                                handlePlayerInjury(lobby, pId, player.x < enemy.x ? -600 : 600);
+                            } else if (enemy.type === 'goomba' || enemy.type === 'blockenemy') {
+                                deadEnemies.push({ id, reason: 'stomped', levelId });
+                                const stompPoints = 100 * (player.stompMultiplier || 1);
+                                addPlayerScore(lobby, pId, stompPoints, enemy.x, enemy.y, levelId);
+                                player.stompMultiplier = (player.stompMultiplier || 1) * 2;
+                                io.to(pId).emit('playerBounce');
+                            } else if (enemy.type === 'koopa') {
+                                if (enemy.state === 'walking') {
+                                    enemy.state = 'shell-still';
+                                    enemy.vx = 0;
+                                } else if (enemy.state === 'shell-rolling') {
+                                    enemy.state = 'shell-still';
+                                    enemy.vx = 0;
+                                } else if (enemy.state === 'shell-still') {
+                                    // Kick it
+                                    enemy.state = 'shell-rolling';
+                                    enemy.vx = (player.x < enemy.x ? 12 : -12);
+                                }
+                                io.to(`${lobby.id}_${levelId}`).emit('enemyMoved', enemy);
+                                
+                                const stompPoints = 100 * (player.stompMultiplier || 1);
+                                addPlayerScore(lobby, pId, stompPoints, enemy.x, enemy.y, levelId);
+                                player.stompMultiplier = (player.stompMultiplier || 1) * 2;
+                                io.to(pId).emit('playerBounce');
+                            }
                         } else {
-                            // Damage/Knockback player
-                            handlePlayerInjury(lobby, pId, player.x < enemy.x ? -600 : 600);
+                            // Side Collision Logic
+                            if (enemy.type === 'koopa' && enemy.state === 'shell-still') {
+                                // Kick it
+                                enemy.state = 'shell-rolling';
+                                enemy.vx = (player.x < enemy.x ? 12 : -12);
+                                io.to(`${lobby.id}_${levelId}`).emit('enemyMoved', enemy);
+                            } else {
+                                // Damage/Knockback player
+                                handlePlayerInjury(lobby, pId, player.x < enemy.x ? -600 : 600);
+                            }
                         }
                     }
                 }
             });
 
-            levelUpdates[levelId].enemyUpdates.push({ id, x: enemy.x, y: enemy.y, vx: enemy.vx });
+            levelUpdates[levelId].enemyUpdates.push({ id, x: enemy.x, y: enemy.y, vx: enemy.vx, state: enemy.state });
         });
 
         // Check Flag Collisions
@@ -1566,7 +1641,8 @@ function spawnItem(lobby, x, y, type, levelId) {
 
 function spawnEnemy(lobby, x, y, type, levelId, frame) {
     const id = `enemy_${lobby.enemyIdCounter++}`;
-    lobby.activeEnemies[id] = { id, type, x, y, vx: -ENEMY_SPEED, vy: 0, levelId, frame };
+    const speed = (type === 'piranha') ? 0 : -ENEMY_SPEED;
+    lobby.activeEnemies[id] = { id, type, x, y, vx: speed, vy: 0, levelId, frame, state: 'walking', startY: y };
     io.to(`${lobby.id}_${levelId}`).emit('enemySpawned', lobby.activeEnemies[id]);
 }
 
