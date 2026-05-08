@@ -227,6 +227,30 @@ function createLobby(id, name = 'Room', mode = 'Co-op', hostId = null) {
     return lobby;
 }
 
+function closeLobby(lobbyId, notify = true) {
+    const lobby = lobbies[lobbyId];
+    if (!lobby) return;
+
+    if (notify) {
+        io.to(lobby.id).emit('lobbyKilled');
+    }
+
+    const playerIds = Object.keys(lobby.players);
+    playerIds.forEach(pId => {
+        const pSocket = io.sockets.sockets.get(pId);
+        if (pSocket) {
+            pSocket.leave(lobby.id);
+            if (lobby.players[pId].levelId) {
+                pSocket.leave(`${lobby.id}_${lobby.players[pId].levelId}`);
+            }
+            delete pSocket.lobbyId;
+        }
+    });
+
+    delete lobbies[lobbyId];
+    broadcastLobbyList();
+}
+
 // Physics Constants
 const GRAVITY = 0.8;
 const ITEM_SPEED = 3;
@@ -1027,7 +1051,19 @@ function EndLevel(lobby) {
                 if (lobby.currentLevel === 'world-1-1') {
                     lobby.currentLevel = 'world-1-2';
                 } else if (lobby.currentLevel === 'world-1-2') {
-                    lobby.currentLevel = 'world-1-1';
+                    lobby.currentLevel = 'world-1-3';
+                } else if (lobby.currentLevel === 'world-1-3') {
+                    lobby.currentLevel = 'world-2-1';
+                } else if (lobby.currentLevel === 'world-2-1') {
+                    // Emit win event instead of immediate restart
+                    io.to(lobby.id).emit('gameWon');
+                    lobby.levelIsRestarting = false;
+                    
+                    // Close the lobby automatically after win screen shows
+                    setTimeout(() => {
+                        closeLobby(lobby.id, false); // Don't notify with alert, just cleanup
+                    }, 1000);
+                    return; // Stop the timeout
                 }
             } else if (lobby.mode === 'Speedrun') {
                 // Keep the same level for speedrun attempts
@@ -1331,22 +1367,7 @@ io.on('connection', (socket) => {
         const lobby = lobbies[socket.lobbyId];
         if (!lobby || lobby.host !== socket.id) return;
 
-        io.to(lobby.id).emit('lobbyKilled');
-
-        // Make all players leave
-        const playerIds = Object.keys(lobby.players);
-        playerIds.forEach(pId => {
-            const pSocket = io.sockets.sockets.get(pId);
-            if (pSocket) {
-                pSocket.leave(lobby.id);
-                if (lobby.players[pId].levelId) {
-                    pSocket.leave(`${lobby.id}_${lobby.players[pId].levelId}`);
-                }
-            }
-        });
-
-        delete lobbies[lobby.id];
-        broadcastLobbyList();
+        closeLobby(lobby.id, true);
     });
 
     socket.on('leaveLobby', () => {

@@ -5,8 +5,12 @@ import './style.css';
 const config = {
   type: Phaser.AUTO,
   width: 800,
-  height: 600,
+  height: 450,
   parent: 'app',
+  scale: {
+    mode: Phaser.Scale.ENVELOP,
+    autoCenter: Phaser.Scale.CENTER_BOTH
+  },
   pixelArt: true,
   roundPixels: true,
   antialias: false,
@@ -118,9 +122,10 @@ const adminScoresList = document.getElementById('admin-scores-list');
 const btnAdminPanel = document.getElementById('btn-admin-panel');
 const btnAdminUsersTab = document.getElementById('btn-admin-users-tab');
 const btnAdminScoresTab = document.getElementById('btn-admin-scores-tab');
+const victoryScreen = document.getElementById('victory-screen');
 
 function showScreen(screenId) {
-  [titleScreen, lobbyScreen, leaderboardScreen, document.getElementById('lobby-waiting-screen'), authScreen, resultsScreen, adminScreen].forEach(s => {
+  [titleScreen, lobbyScreen, leaderboardScreen, document.getElementById('lobby-waiting-screen'), authScreen, resultsScreen, adminScreen, victoryScreen].forEach(s => {
     if (s) s.classList.remove('active');
   });
 
@@ -143,11 +148,12 @@ function showScreen(screenId) {
   if (screenId === 'auth') authScreen.classList.add('active');
   if (screenId === 'results') resultsScreen.classList.add('active');
   if (screenId === 'admin') adminScreen.classList.add('active');
+  if (screenId === 'victory') victoryScreen.classList.add('active');
 }
 
 
-const SERVER_URL = window.location.hostname === 'localhost' 
-  ? 'http://localhost:3000' 
+const SERVER_URL = window.location.hostname === 'localhost'
+  ? 'http://localhost:3000'
   : window.location.origin;
 
 function initSocket() {
@@ -374,6 +380,15 @@ function initSocket() {
       renderResults({ ...lastMatchResults, readyPlayers: data.readyPlayers });
     }
   });
+
+  socket.on('gameWon', () => {
+    console.log('[Victory] Game Won event received!');
+    document.body.classList.remove('in-game');
+    showScreen('victory');
+    if (game && game.scene && game.scene.scenes[0]) {
+      game.scene.scenes[0].physics.world.pause();
+    }
+  });
 }
 
 function renderResults(data) {
@@ -526,9 +541,9 @@ document.getElementById('btn-sp-speedrun').addEventListener('click', () => {
 document.getElementById('btn-sp-speedrun-confirm').addEventListener('click', () => {
   const selectedLevel = speedrunLevelSelect.value;
   isSinglePlayer = true;
-  socket.emit('createLobby', { 
-    name: 'Speedrun', 
-    mode: 'Speedrun', 
+  socket.emit('createLobby', {
+    name: 'Speedrun',
+    mode: 'Speedrun',
     username: currentUser,
     map: selectedLevel
   });
@@ -636,6 +651,14 @@ btnAdminScoresTab.addEventListener('click', () => switchAdminTab('scores'));
 
 document.getElementById('btn-back-to-title-admin').addEventListener('click', () => {
   showScreen('title');
+});
+
+document.getElementById('btn-victory-back').addEventListener('click', () => {
+  showScreen('title');
+  if (game) {
+    game.destroy(true);
+    game = null;
+  }
 });
 
 async function switchAdminTab(tab) {
@@ -1577,14 +1600,14 @@ function update(time, delta) {
       otherPlayer.setPosition(newX, newY);
 
       // Apply jump frame offsets
-        const isJumping = otherPlayer.anims.currentAnim && otherPlayer.anims.currentAnim.key.includes('jump');
+      const isJumping = otherPlayer.anims.currentAnim && otherPlayer.anims.currentAnim.key.includes('jump');
 
-        if (isJumping) {
-          const jumpHeight = (otherPlayer.state === 0) ? 14 : 28;
-          const jumpOffset = (otherPlayer.state === 0) ? 2 : 4;
-          otherPlayer.setSize(12, jumpHeight);
-          otherPlayer.setOffset(otherPlayer.flipX ? 2 : 6, jumpOffset);
-        } else {
+      if (isJumping) {
+        const jumpHeight = (otherPlayer.state === 0) ? 14 : 28;
+        const jumpOffset = (otherPlayer.state === 0) ? 2 : 4;
+        otherPlayer.setSize(12, jumpHeight);
+        otherPlayer.setOffset(otherPlayer.flipX ? 2 : 6, jumpOffset);
+      } else {
         if (otherPlayer.state === 0) {
           if (otherPlayer.body.height !== 16) otherPlayer.setSize(12, 16);
         } else {
