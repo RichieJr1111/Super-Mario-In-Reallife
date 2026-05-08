@@ -10,5 +10,9 @@
     "start": "npm start --workspace=server",
     "dev:server": "npm run dev --workspace=server",
     "dev:client": "npm run dev --workspace=client"
+  },
+  "dependencies": {
+    "sequelize": "^6.37.8",
+    "sqlite3": "^5.1.7"
   }
 }

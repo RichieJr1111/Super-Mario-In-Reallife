@@ -10,3 +10,5 @@ services:
         value: production
       - key: npm_config_build_from_source
         value: "true"
+      - key: PYTHON
+        value: /usr/bin/python3
