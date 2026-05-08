@@ -33,7 +33,7 @@ let lastGlobalRefresh = Date.now();
 // Global background refresh (Scheduled Refresh pattern)
 async function refreshAllLeaderboards() {
     console.log('[Background] Refreshing all leaderboards...');
-    const levels = ['world-1-1', 'world-1-2', 'underground', 'battle-arena', 'sky-race'];
+    const levels = Object.keys(MAPS);
     const types = ['time', 'score'];
 
     for (const levelId of levels) {
@@ -92,6 +92,10 @@ const User = sequelize.define('User', {
     isAdmin: {
         type: DataTypes.BOOLEAN,
         defaultValue: false
+    },
+    sessionToken: {
+        type: DataTypes.STRING,
+        allowNull: true
     }
 });
 
@@ -147,10 +151,10 @@ app.delete('/api/admin/users/:id', adminMiddleware, async (req, res) => {
     try {
         const user = await User.findByPk(req.params.id);
         if (!user) return res.status(404).json({ error: 'User not found' });
-        
+
         await HighScore.destroy({ where: { playerName: user.username } });
         await user.destroy();
-        
+
         res.json({ message: 'User and their scores deleted successfully' });
     } catch (error) {
         res.status(500).json({ error: 'Failed to delete user' });
@@ -170,12 +174,11 @@ app.delete('/api/admin/scores/:id', adminMiddleware, async (req, res) => {
 
 async function initDb() {
     try {
-        await sequelize.sync();
+        await sequelize.sync({ alter: true });
     } catch (err) {
         console.error('Database init error:', err);
     }
 }
-initDb();
 
 // Serve static client files
 app.use(express.static(path.join(__dirname, '../client/dist')));
@@ -219,11 +222,11 @@ function createLobby(id, name = 'Room', mode = 'Co-op', hostId = null) {
         flagHit: false,
         isPaused: false
     };
-    
+
     if (mode === 'Chaos') {
         applyChaosRandomization(lobby, initialLevel);
     }
-    
+
     return lobby;
 }
 
@@ -424,6 +427,7 @@ setInterval(() => {
 
         Object.keys(lobby.activeEnemies).forEach(id => {
             const enemy = lobby.activeEnemies[id];
+            if (enemy.damageCooldown > 0) enemy.damageCooldown -= 33;
             const levelId = enemy.levelId || 'world-1-1';
             if (!levelUpdates[levelId]) levelUpdates[levelId] = { itemUpdates: [], enemyUpdates: [], fireballUpdates: [] };
 
@@ -431,7 +435,7 @@ setInterval(() => {
             if (enemy.type === 'piranha') {
                 if (!enemy.timer) enemy.timer = 0;
                 enemy.timer += 33;
-                
+
                 // Simple oscillation: 2s down (hidden), 2s up (visible)
                 const cycle = enemy.timer % 4000;
                 const baseY = enemy.startY || enemy.y;
@@ -449,7 +453,7 @@ setInterval(() => {
                 // No early return! Need to check player collisions.
             } else {
                 // Regular Enemy Logic (Horizontal movement + Gravity)
-                
+
                 // Horizontal movement
                 if (enemy.state !== 'shell-still') {
                     enemy.x += enemy.vx;
@@ -551,9 +555,10 @@ setInterval(() => {
                                     // Kick it
                                     enemy.state = 'shell-rolling';
                                     enemy.vx = (player.x < enemy.x ? 12 : -12);
+                                    enemy.damageCooldown = 200; // 0.2s delay before it can hit mario
                                 }
                                 io.to(`${lobby.id}_${levelId}`).emit('enemyMoved', enemy);
-                                
+
                                 const stompPoints = 100 * (player.stompMultiplier || 1);
                                 addPlayerScore(lobby, pId, stompPoints, enemy.x, enemy.y, levelId);
                                 player.stompMultiplier = (player.stompMultiplier || 1) * 2;
@@ -565,10 +570,13 @@ setInterval(() => {
                                 // Kick it
                                 enemy.state = 'shell-rolling';
                                 enemy.vx = (player.x < enemy.x ? 12 : -12);
+                                enemy.damageCooldown = 200;
                                 io.to(`${lobby.id}_${levelId}`).emit('enemyMoved', enemy);
                             } else {
                                 // Damage/Knockback player
-                                handlePlayerInjury(lobby, pId, player.x < enemy.x ? -600 : 600);
+                                if (!enemy.damageCooldown || enemy.damageCooldown <= 0) {
+                                    handlePlayerInjury(lobby, pId, player.x < enemy.x ? -600 : 600);
+                                }
                             }
                         }
                     }
@@ -967,7 +975,7 @@ function EndLevel(lobby) {
             try {
                 // Get personal bests to check if this run is a new best
                 const existingBest = await HighScore.findOne({
-                    where: { 
+                    where: {
                         playerName: p.username || 'Guest',
                         levelId: lobby.currentLevel || 'world-1-1'
                     },
@@ -995,7 +1003,7 @@ function EndLevel(lobby) {
 
                 // Send back the absolute personal best time for the UI
                 const finalBest = await HighScore.findOne({
-                    where: { 
+                    where: {
                         playerName: p.username || 'Guest',
                         levelId: lobby.currentLevel || 'world-1-1'
                     },
@@ -1058,7 +1066,7 @@ function EndLevel(lobby) {
                     // Emit win event instead of immediate restart
                     io.to(lobby.id).emit('gameWon');
                     lobby.levelIsRestarting = false;
-                    
+
                     // Close the lobby automatically after win screen shows
                     setTimeout(() => {
                         closeLobby(lobby.id, false); // Don't notify with alert, just cleanup
@@ -1114,7 +1122,7 @@ function RestartLevel(lobby) {
         // Send personal best for the new level
         if (socket) {
             const pb = await HighScore.findOne({
-                where: { 
+                where: {
                     playerName: p.username || 'Guest',
                     levelId: levelId
                 },
@@ -1179,7 +1187,7 @@ io.on('connection', (socket) => {
         if (username) socket.username = username;
         const id = `lobby_${Math.random().toString(36).substr(2, 9)}`;
         const lobby = createLobby(id, name, mode, socket.id);
-        
+
         if (map) {
             lobby.currentLevel = map;
             lobby.builtMaps[map] = buildLevel(map);
@@ -1350,7 +1358,7 @@ io.on('connection', (socket) => {
             // Send personal best on join
             if (p) {
                 const pb = await HighScore.findOne({
-                    where: { 
+                    where: {
                         playerName: p.username || 'Guest',
                         levelId: lobby.currentLevel || 'world-1-1'
                     },
@@ -1758,7 +1766,7 @@ function spawnEnemy(lobby, x, y, type, levelId, frame) {
 }
 
 const CHAOS_POSSIBILITIES = [
-    'brick', 'question_coin', 'question_mushroom', 'question_star', 
+    'brick', 'question_coin', 'question_mushroom', 'question_star',
     'hard_block', 'ground_top', 'enemy_goomba', 'empty', 'coin'
 ];
 
@@ -1775,16 +1783,16 @@ function applyChaosRandomization(lobby, levelId) {
         const row = originalMapData[y];
         for (let x = 0; x < row.length; x++) {
             const char = row[x];
-            
+
             // Randomizable: S, Q, ?, *, X, E, C
             const randomizable = ['S', 'Q', '?', '*', 'X', 'E', 'C'].includes(char);
             if (!randomizable) continue;
 
             const outcome = CHAOS_POSSIBILITIES[Math.floor(Math.random() * CHAOS_POSSIBILITIES.length)];
-            
+
             // Clear current spot in tile map
             map.data[y][x] = TILE.EMPTY;
-            
+
             switch (outcome) {
                 case 'brick':
                     map.data[y][x] = TILE.BRICK;
