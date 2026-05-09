@@ -40,6 +40,17 @@ const SKID_DRAG = 1200;
 const JUMP_FORCE = -1100;
 const VARIABLE_JUMP_MODIFIER = 0.5;
 
+let bgm;
+let currentMusicKey = null;
+
+function playMusic(scene, key, loop = true) {
+  if (currentMusicKey === key) return;
+  if (bgm) bgm.stop();
+  bgm = scene.sound.add(key, { loop: loop });
+  bgm.play();
+  currentMusicKey = key;
+}
+
 let game;
 let socket;
 let player;
@@ -59,6 +70,7 @@ let runTime = 0;
 let isTimerRunning = false;
 let personalBestTime = null;
 let currentWarps = {};
+let selectedSkin = getCookie('mario_selected_skin') || localStorage.getItem('mario_selected_skin') || 'mario';
 
 function formatTime(ms) {
   if (ms === null) return '--:--.--';
@@ -181,7 +193,7 @@ function initSocket() {
     document.querySelectorAll('.join-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         isSinglePlayer = false;
-        socket.emit('joinLobby', { lobbyId: btn.dataset.id, username: currentUser });
+        socket.emit('joinLobby', { lobbyId: btn.dataset.id, username: currentUser, skin: selectedSkin });
       });
     });
   });
@@ -256,7 +268,7 @@ function initSocket() {
   });
 
   socket.on('lobbyCreated', (id) => {
-    socket.emit('joinLobby', { lobbyId: id, username: currentUser });
+    socket.emit('joinLobby', { lobbyId: id, username: currentUser, skin: selectedSkin });
   });
 
   socket.on('initMap', (mapData) => {
@@ -477,7 +489,7 @@ async function loadSavedCredentials() {
                     currentUserId = data.userId;
                     isAdmin = data.isAdmin || false;
                     
-                    socket.emit('registerUsername', currentUser);
+                    socket.emit('registerUsername', { username: currentUser, skin: selectedSkin });
                     
                     if (btnAdminPanel) {
                         btnAdminPanel.style.display = isAdmin ? 'block' : 'none';
@@ -532,7 +544,7 @@ async function handleLogin() {
         deleteCookie('mario_session_token');
       }
       
-      socket.emit('registerUsername', currentUser);
+      socket.emit('registerUsername', { username: currentUser, skin: selectedSkin });
       
       if (btnAdminPanel) {
         btnAdminPanel.style.display = isAdmin ? 'block' : 'none';
@@ -687,6 +699,76 @@ document.getElementById('btn-close-modal').addEventListener('click', () => {
 });
 
 const settingsModal = document.getElementById('settings-modal');
+
+// Character Selection Logic
+document.querySelectorAll('.char-option').forEach(option => {
+  option.addEventListener('click', () => {
+    selectedSkin = option.dataset.skin;
+    localStorage.setItem('mario_selected_skin', selectedSkin);
+    setCookie('mario_selected_skin', selectedSkin, 30); // Save for 30 days
+    
+    // Update active class
+    document.querySelectorAll('.char-option').forEach(opt => opt.classList.remove('active'));
+    option.classList.add('active');
+    
+    console.log(`[Settings] Skin changed to: ${selectedSkin}`);
+    
+    // If player exists, update texture immediately while preserving state
+    if (player && player.scene) {
+      const vx = player.body.velocity.x;
+      const vy = player.body.velocity.y;
+      
+      player.setTexture(selectedSkin);
+      applyPlayerState(player, player.state);
+      
+      // Ensure velocity is maintained after texture swap/hitbox reset
+      player.setVelocity(vx, vy);
+    }
+  });
+});
+
+// Initialize active skin in UI
+function syncSkinUI() {
+  document.querySelectorAll('.char-option').forEach(option => {
+    if (option.dataset.skin === selectedSkin) {
+      option.classList.add('active');
+    } else {
+      option.classList.remove('active');
+    }
+  });
+}
+
+document.getElementById('btn-settings').addEventListener('click', () => {
+  syncSkinUI();
+  settingsModal.classList.add('active');
+});
+
+document.getElementById('btn-close-settings').addEventListener('click', () => {
+  settingsModal.classList.remove('active');
+  // If we were in the middle of a game, return to the pause menu
+  if (document.body.classList.contains('in-game')) {
+    gameMenuModal.classList.add('active');
+  }
+});
+
+document.getElementById('btn-settings-in-game').addEventListener('click', () => {
+  gameMenuModal.classList.remove('active');
+  syncSkinUI();
+  settingsModal.classList.add('active');
+});
+
+// Character Preview State Cycling
+const charGrid = document.querySelector('.character-grid');
+const states = ['state-small', 'state-big', 'state-fire'];
+let currentStateIndex = 0;
+
+setInterval(() => {
+  if (!settingsModal.classList.contains('active')) return;
+  
+  charGrid.classList.remove(...states);
+  currentStateIndex = (currentStateIndex + 1) % states.length;
+  charGrid.classList.add(states[currentStateIndex]);
+}, 3000);
 
 document.getElementById('btn-create-lobby-confirm').addEventListener('click', () => {
   const name = document.getElementById('lobby-name-input').value || 'New Room';
@@ -869,6 +951,16 @@ btnReadyNext.addEventListener('click', () => {
 function toggleGameMenu() {
   if (!game) return;
   const scene = game.scene.scenes[0];
+
+  // If settings modal is open, close it first and return to menu
+  if (settingsModal.classList.contains('active')) {
+    settingsModal.classList.remove('active');
+    if (document.body.classList.contains('in-game')) {
+      gameMenuModal.classList.add('active');
+    }
+    return;
+  }
+
   const isActive = gameMenuModal.classList.contains('active');
 
   // Determine if we should pause the game state (singleplayer or alone in lobby)
@@ -879,6 +971,7 @@ function toggleGameMenu() {
     if (shouldPauseState) {
       scene.physics.world.resume();
       scene.anims.resumeAll();
+      if (bgm) bgm.resume();
       if (socket) socket.emit('resumeGame');
     }
     if (player && !player.levelFinished && !player.dead) {
@@ -894,8 +987,10 @@ function toggleGameMenu() {
     if (shouldPauseState) {
       scene.physics.world.pause();
       scene.anims.pauseAll();
+      if (bgm) bgm.pause();
       if (socket) socket.emit('pauseGame');
     }
+    this.sound.play('pause');
   }
 }
 
@@ -929,11 +1024,45 @@ document.getElementById('btn-quit-to-menu').addEventListener('click', () => {
 function preload() {
   this.load.spritesheet('tiles', '/tileset.png', { frameWidth: 64, frameHeight: 64 });
   this.load.atlas('mario', '/mario_sprite.png', '/mario.json');
+  this.load.atlas('luigi', '/luigi_sprite.png', '/mario.json');
+  this.load.atlas('jacob', '/jacob_sprite.png', '/mario.json');
+  this.load.atlas('sean', '/sean_sprite.png', '/mario.json');
+
+  // Sound Effects
+  this.load.audio('1up', '/sounds/1up.wav');
+  this.load.audio('beep', '/sounds/beep.wav');
+  this.load.audio('billfirework', '/sounds/billfirework.wav');
+  this.load.audio('bowserfall', '/sounds/bowserfall.wav');
+  this.load.audio('brick', '/sounds/brick.wav');
+  this.load.audio('bump', '/sounds/bump.wav');
+  this.load.audio('coin', '/sounds/coin.wav');
+  this.load.audio('death', '/sounds/death.wav');
+  this.load.audio('fire', '/sounds/fire.wav');
+  this.load.audio('fireball', '/sounds/fireball.wav');
+  this.load.audio('flagpole', '/sounds/flagpole.wav');
+  this.load.audio('gameover', '/sounds/gameover.wav');
+  this.load.audio('item', '/sounds/item.wav');
+  this.load.audio('jump', '/sounds/jump.wav');
+  this.load.audio('jumpsmall', '/sounds/jumpsmall.wav');
+  this.load.audio('kickkill', '/sounds/kickkill.wav');
+  this.load.audio('pause', '/sounds/pause.wav');
+  this.load.audio('pipepowerdown', '/sounds/pipepowerdown.wav');
+  this.load.audio('powerup', '/sounds/powerup.wav');
+  this.load.audio('stompswim', '/sounds/stompswim.wav');
+  this.load.audio('vine', '/sounds/vine.wav');
+
+  // Music
+  this.load.audio('music_overworld', '/sounds/01. Ground Theme.mp3');
+  this.load.audio('music_invincible', '/sounds/05. Invincibility Theme.mp3');
+  this.load.audio('music_victory', '/sounds/06. Level Complete Theme.mp3');
 }
 
 function handleInitMap(mapData) {
   // Hide results screen if it was open
   resultsScreen.classList.remove('active');
+
+  // Start Overworld Theme
+  playMusic(this, 'music_overworld');
 
   if (this.physics && this.physics.world) {
     this.physics.world.resume();
@@ -1004,7 +1133,7 @@ function handleInitMap(mapData) {
       player.dead = false; // Reset death state on level reset
       player.alpha = 1;
       player.clearTint();
-      if (player.anims) player.anims.play('idle', true);
+      if (player.anims) player.anims.play(selectedSkin + '_idle', true);
 
       if (playerCollider) this.physics.world.removeCollider(playerCollider);
       playerCollider = this.physics.add.collider(player, layer, handleTileCollision, null, this);
@@ -1104,6 +1233,9 @@ function create() {
 
   socket.on('playFlagAnimation', (data) => {
     if (player) {
+      if (bgm) bgm.stop();
+      this.sound.play('music_victory');
+      currentMusicKey = 'music_victory';
       playFlagAnimation(this, player, data.x, data.y);
     }
   });
@@ -1132,6 +1264,10 @@ function create() {
       otherPlayer.flipX = playerInfo.flipX;
       otherPlayer.dead = playerInfo.dead;
       otherPlayer.invulnTimer = playerInfo.invulnTimer;
+      
+      if (playerInfo.skin && otherPlayer.texture.key !== playerInfo.skin) {
+        otherPlayer.setTexture(playerInfo.skin);
+      }
 
       if (playerInfo.dead) {
         otherPlayer.anims.play('die', true);
@@ -1169,6 +1305,21 @@ function create() {
           player.setAcceleration(0, 0);
         }
       }
+
+      // Handle Death Sound
+      if (player.dead && !player.oldDead) {
+        if (bgm) bgm.stop();
+        this.sound.play('death');
+        currentMusicKey = null;
+      }
+
+      // Handle Star Power Music
+      if (player.invincible && currentMusicKey !== 'music_invincible' && currentMusicKey !== 'music_victory') {
+        playMusic(this, 'music_invincible');
+      } else if (!player.invincible && currentMusicKey === 'music_invincible') {
+        playMusic(this, 'music_overworld');
+      }
+
       player.oldDead = player.dead;
     }
   });
@@ -1201,6 +1352,7 @@ function create() {
   }
 
   socket.on('fireballSpawned', (data) => {
+    this.sound.play('fireball');
     const fireballSprite = this.add.sprite(data.x, data.y, 'tiles', 241).setScale(1);
     fireballSprite.id = data.id;
     fireballSprite.lastUpdate = Date.now();
@@ -1233,6 +1385,7 @@ function create() {
   });
 
   socket.on('fireballDestroyed', (id) => {
+    this.sound.play('fire');
     const fb = fireballs.getChildren().find(f => f.id === id);
     if (fb) {
       // Explosion effect (Phaser 3.60+ syntax)
@@ -1266,6 +1419,7 @@ function create() {
 
   socket.on('playerKnockback', (force) => {
     if (player && player.body) {
+      this.sound.play('pipepowerdown');
       player.setVelocity(force.vx, force.vy);
       player.setTint(0xff0000); // Visual indicator of hit
       this.time.delayedCall(200, () => player.clearTint());
@@ -1296,6 +1450,9 @@ function create() {
 
     // If local player collected it, update state
     if (data.collectorId === socket.id && player) {
+      if (player.state < data.newState) {
+        this.sound.play('powerup');
+      }
       player.state = data.newState;
       applyPlayerState(player, data.newState);
       if (data.invincible !== undefined) player.invincible = data.invincible;
@@ -1304,6 +1461,7 @@ function create() {
 
   socket.on('playerBounce', () => {
     if (player && player.body) {
+      this.sound.play('stompswim');
       player.setVelocityY(-1100); // Bounce the player up
     }
   });
@@ -1357,20 +1515,17 @@ function create() {
     const e = enemies.getChildren().find(sprite => sprite.id === data.id);
     if (e) {
       if (data.reason === 'stomped') {
+        this.sound.play('stompswim');
         if (e.type === 'goomba') {
           e.anims.play('goomba_flat');
           this.time.delayedCall(200, () => e.destroy());
         } else {
-          // Block enemy stomp: just shrink and destroy
-          this.tweens.add({
-            targets: e,
-            scaleY: 0.1,
-            alpha: 0,
-            duration: 200,
-            onComplete: () => e.destroy()
-          });
+          e.destroy();
         }
       } else {
+        if (data.reason === 'shell' || data.reason === 'fireball' || data.reason === 'star') {
+          this.sound.play('kickkill');
+        }
         // Fireball or other: Flip away
         e.setTint(0xff0000);
         this.tweens.add({
@@ -1422,7 +1577,7 @@ function createItemSprite(scene, item) {
   sprite.body.setAllowGravity(false); // Server handles gravity
 
   if (item.type === 'coin') {
-
+    scene.sound.play('coin');
     // Pop up animation for coin
     scene.tweens.add({
       targets: sprite,
@@ -1432,6 +1587,7 @@ function createItemSprite(scene, item) {
       onComplete: () => sprite.destroy()
     });
   } else if (item.type === 'phys_coin' || player) {
+    if (item.type !== 'phys_coin') scene.sound.play('item');
     // For phys_coin (collected by anyone) or other items (collected by local player)
     // Actually, only local player should emit 'collectItem' to avoid race conditions
     if (player) {
@@ -1473,6 +1629,7 @@ function bounceTile(scene, tile, newTileIndex) {
 
   // If newTileIndex is -1 and it's a brick (frame 1), show shatter effect
   if (newTileIndex === -1 && tile.index === 1) {
+    scene.sound.play('brick');
     layer.removeTileAt(x, y);
 
     // Shatter particles (4 pieces)
@@ -1500,6 +1657,7 @@ function bounceTile(scene, tile, newTileIndex) {
   }
 
   // Normal bounce for question blocks or small Mario hitting bricks
+  scene.sound.play('bump');
   const bounceSprite = scene.add.sprite(tileWorldX, tileWorldY, 'tiles', tile.index);
   bounceSprite.setOrigin(0.5);
 
@@ -1522,38 +1680,42 @@ function bounceTile(scene, tile, newTileIndex) {
 }
 
 function setupAnimations(scene) {
-  // Small Mario
-  scene.anims.create({ key: 'idle', frames: [{ key: 'mario', frame: 'idle' }], frameRate: 10 });
-  scene.anims.create({
-    key: 'walk',
-    frames: [{ key: 'mario', frame: 'run_1' }, { key: 'mario', frame: 'run_2' }, { key: 'mario', frame: 'run_3' }],
-    frameRate: 12, repeat: -1
-  });
-  scene.anims.create({ key: 'jump', frames: [{ key: 'mario', frame: 'jump' }], frameRate: 10 });
-  scene.anims.create({ key: 'skid', frames: [{ key: 'mario', frame: 'skid' }], frameRate: 10 });
+  const skins = ['mario', 'luigi', 'jacob', 'sean'];
+  
+  skins.forEach(skin => {
+    // Small
+    scene.anims.create({ key: skin + '_idle', frames: [{ key: skin, frame: 'idle' }], frameRate: 10 });
+    scene.anims.create({
+      key: skin + '_walk',
+      frames: [{ key: skin, frame: 'run_1' }, { key: skin, frame: 'run_2' }, { key: skin, frame: 'run_3' }],
+      frameRate: 12, repeat: -1
+    });
+    scene.anims.create({ key: skin + '_jump', frames: [{ key: skin, frame: 'jump' }], frameRate: 10 });
+    scene.anims.create({ key: skin + '_skid', frames: [{ key: skin, frame: 'skid' }], frameRate: 10 });
 
-  // Big Mario
-  scene.anims.create({ key: 'big_idle', frames: [{ key: 'mario', frame: 'big_idle' }], frameRate: 10 });
-  scene.anims.create({
-    key: 'big_walk',
-    frames: [{ key: 'mario', frame: 'big_run_1' }, { key: 'mario', frame: 'big_run_2' }, { key: 'mario', frame: 'big_run_3' }],
-    frameRate: 12, repeat: -1
-  });
-  scene.anims.create({ key: 'big_jump', frames: [{ key: 'mario', frame: 'big_jump' }], frameRate: 10 });
-  scene.anims.create({ key: 'big_skid', frames: [{ key: 'mario', frame: 'big_skid' }], frameRate: 10 });
+    // Big
+    scene.anims.create({ key: skin + '_big_idle', frames: [{ key: skin, frame: 'big_idle' }], frameRate: 10 });
+    scene.anims.create({
+      key: skin + '_big_walk',
+      frames: [{ key: skin, frame: 'big_run_1' }, { key: skin, frame: 'big_run_2' }, { key: skin, frame: 'big_run_3' }],
+      frameRate: 12, repeat: -1
+    });
+    scene.anims.create({ key: skin + '_big_jump', frames: [{ key: skin, frame: 'big_jump' }], frameRate: 10 });
+    scene.anims.create({ key: skin + '_big_skid', frames: [{ key: skin, frame: 'big_skid' }], frameRate: 10 });
 
-  // Fire Mario
-  scene.anims.create({ key: 'fire_idle', frames: [{ key: 'mario', frame: 'fire_idle' }], frameRate: 10 });
-  scene.anims.create({
-    key: 'fire_walk',
-    frames: [{ key: 'mario', frame: 'fire_run_1' }, { key: 'mario', frame: 'fire_run_2' }, { key: 'mario', frame: 'fire_run_3' }],
-    frameRate: 12, repeat: -1
-  });
-  scene.anims.create({ key: 'fire_jump', frames: [{ key: 'mario', frame: 'fire_jump' }], frameRate: 10 });
-  scene.anims.create({ key: 'fire_skid', frames: [{ key: 'mario', frame: 'fire_skid' }], frameRate: 10 });
-  scene.anims.create({ key: 'fire_shoot', frames: [{ key: 'mario', frame: 'fire_shoot' }], frameRate: 10 });
+    // Fire
+    scene.anims.create({ key: skin + '_fire_idle', frames: [{ key: skin, frame: 'fire_idle' }], frameRate: 10 });
+    scene.anims.create({
+      key: skin + '_fire_walk',
+      frames: [{ key: skin, frame: 'fire_run_1' }, { key: skin, frame: 'fire_run_2' }, { key: skin, frame: 'fire_run_3' }],
+      frameRate: 12, repeat: -1
+    });
+    scene.anims.create({ key: skin + '_fire_jump', frames: [{ key: skin, frame: 'fire_jump' }], frameRate: 10 });
+    scene.anims.create({ key: skin + '_fire_skid', frames: [{ key: skin, frame: 'fire_skid' }], frameRate: 10 });
+    scene.anims.create({ key: skin + '_fire_shoot', frames: [{ key: skin, frame: 'fire_shoot' }], frameRate: 10 });
 
-  scene.anims.create({ key: 'die', frames: [{ key: 'mario', frame: 'die' }], frameRate: 10 });
+    scene.anims.create({ key: skin + '_die', frames: [{ key: skin, frame: 'die' }], frameRate: 10 });
+  });
 
   // Goomba
   scene.anims.create({
@@ -1593,10 +1755,11 @@ function applyPlayerState(p, state) {
   }
 }
 
-function getAnimKey(baseKey, state) {
-  if (state === 1) return 'big_' + baseKey;
-  if (state === 2) return 'fire_' + baseKey;
-  return baseKey;
+function getAnimKey(baseKey, state, skin = 'mario') {
+  let key = baseKey;
+  if (state === 1) key = 'big_' + baseKey;
+  if (state === 2) key = 'fire_' + baseKey;
+  return skin + '_' + key;
 }
 
 function addPlayer(scene, playerInfo) {
@@ -1604,7 +1767,7 @@ function addPlayer(scene, playerInfo) {
   const x = playerInfo.x || 150;
   const y = playerInfo.y || 700;
 
-  player = scene.physics.add.sprite(x, y, 'mario');
+  player = scene.physics.add.sprite(x, y, selectedSkin);
   player.setScale(4);
   player.setCollideWorldBounds(true);
   applyPlayerState(player, playerInfo.state || 0);
@@ -1629,7 +1792,8 @@ function addOtherPlayers(scene, playerInfo) {
   // Prevent duplicate sprites for the same player ID
   if (otherPlayers.getChildren().find(p => p.id === playerInfo.id)) return;
 
-  const otherPlayer = scene.physics.add.sprite(playerInfo.x, playerInfo.y, 'mario').setScale(4);
+  const skin = playerInfo.skin || 'mario';
+  const otherPlayer = scene.physics.add.sprite(playerInfo.x, playerInfo.y, skin).setScale(4);
   otherPlayer.id = playerInfo.id;
   otherPlayer.username = playerInfo.username || 'Guest';
   otherPlayer.targetX = playerInfo.x;
@@ -1761,13 +1925,13 @@ function update(time, delta) {
 
     if (player.dead || player.levelFinished || player.isAnimating) {
       if (player.dead) {
-        player.anims.play('die', true);
+        player.anims.play(selectedSkin + '_die', true);
         player.setCollideWorldBounds(false); // Allow falling off screen
         player.setVelocityX(0);
         player.setAccelerationX(0);
       } else {
         const state = player.state || 0;
-        player.anims.play(getAnimKey('idle', state), true);
+        player.anims.play(getAnimKey('idle', state, selectedSkin), true);
         player.setVelocity(0, 0);
         player.setAcceleration(0, 0);
         player.setCollideWorldBounds(true);
@@ -1810,7 +1974,7 @@ function update(time, delta) {
         if (currentVelocityX > 150) {
           player.setAccelerationX(-ACCEL * 2);
           player.body.setDragX(SKID_DRAG);
-          player.anims.play(getAnimKey('skid', state), true);
+          player.anims.play(getAnimKey('skid', state, selectedSkin), true);
         } else {
           player.setAccelerationX(-ACCEL);
           player.body.setDragX(DRAG);
@@ -1818,13 +1982,13 @@ function update(time, delta) {
           moveHoldTimer += delta;
           const maxSpeed = moveHoldTimer > 100 ? RUN_MAX_VELOCITY : WALK_MAX_VELOCITY;
           player.body.setMaxVelocity(maxSpeed, 1100);
-          if (isGrounded) player.anims.play(getAnimKey('walk', state), true);
+          if (isGrounded) player.anims.play(getAnimKey('walk', state, selectedSkin), true);
         }
       } else if (cursors.right.isDown) {
         if (currentVelocityX < -150) {
           player.setAccelerationX(ACCEL * 2);
           player.body.setDragX(SKID_DRAG);
-          player.anims.play(getAnimKey('skid', state), true);
+          player.anims.play(getAnimKey('skid', state, selectedSkin), true);
         } else {
           player.setAccelerationX(ACCEL);
           player.body.setDragX(DRAG);
@@ -1832,7 +1996,7 @@ function update(time, delta) {
           moveHoldTimer += delta;
           const maxSpeed = moveHoldTimer > 100 ? RUN_MAX_VELOCITY : WALK_MAX_VELOCITY;
           player.body.setMaxVelocity(maxSpeed, 1100);
-          if (isGrounded) player.anims.play(getAnimKey('walk', state), true);
+          if (isGrounded) player.anims.play(getAnimKey('walk', state, selectedSkin), true);
         }
       } else {
         player.setAccelerationX(0);
@@ -1840,14 +2004,19 @@ function update(time, delta) {
         moveHoldTimer = 0;
         if (isGrounded) {
           if (absVelocityX < 10) {
-            if (shootTimer <= 0) player.anims.play(getAnimKey('idle', state), true);
+            if (shootTimer <= 0) player.anims.play(getAnimKey('idle', state, selectedSkin), true);
           } else {
-            if (shootTimer <= 0) player.anims.play(getAnimKey('walk', state), true);
+            if (shootTimer <= 0) player.anims.play(getAnimKey('walk', state, selectedSkin), true);
           }
         }
       }
 
       if (isJumpBuffered && canJump) {
+        if (state === 0) {
+          this.sound.play('jumpsmall');
+        } else {
+          this.sound.play('jump');
+        }
         player.setVelocityY(JUMP_FORCE);
         player.jumpBufferTimer = 0; // Clear buffer
         player.lastGroundedTime = 0; // Clear coyote time
@@ -1857,7 +2026,7 @@ function update(time, delta) {
 
       if (!isGrounded && Math.abs(player.body.velocity.y) > 20) {
         if (shootTimer <= 0) {
-          player.anims.play(getAnimKey('jump', state), true);
+          player.anims.play(getAnimKey('jump', state, selectedSkin), true);
         }
 
         const jumpHeight = (state === 0) ? 14 : 28;
@@ -1874,14 +2043,14 @@ function update(time, delta) {
       }
 
       if (shootTimer > 0 && state === 2) {
-        player.anims.play('fire_shoot', true);
+        player.anims.play(selectedSkin + '_fire_shoot', true);
         player.setOffset(0, 0);
       }
 
       if (Phaser.Input.Keyboard.JustDown(keyX) && player.state === 2) {
         socket.emit('shootFireball');
         shootTimer = 150;
-        player.anims.play('fire_shoot', true);
+        player.anims.play(selectedSkin + '_fire_shoot', true);
       }
 
       if (cursors.down.isDown) {
@@ -1910,9 +2079,9 @@ function update(time, delta) {
       moveHoldTimer = 0;
       if (isGrounded) {
         if (absVelocityX < 10) {
-          player.anims.play(getAnimKey('idle', state), true);
+          player.anims.play(getAnimKey('idle', state, selectedSkin), true);
         } else {
-          player.anims.play(getAnimKey('walk', state), true);
+          player.anims.play(getAnimKey('walk', state, selectedSkin), true);
         }
       }
     }
@@ -1932,9 +2101,9 @@ function update(time, delta) {
       player.invincible !== player.oldPosition.invincible;
 
     if (hasMovedSignificantly && now - lastEmitTime > EMIT_THRESHOLD_MS) {
-      socket.emit('playerMovement', { x, y, anim, flipX, state });
+      socket.emit('playerMovement', { x, y, anim, flipX, state, skin: selectedSkin });
       lastEmitTime = now;
-      player.oldPosition = { x, y, anim, flipX, state, invincible: player.invincible };
+      player.oldPosition = { x, y, anim, flipX, state, invincible: player.invincible, skin: selectedSkin };
     }
 
     // Rainbow Effect for Local Player

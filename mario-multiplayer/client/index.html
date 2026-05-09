@@ -326,18 +326,34 @@
       </div>
     </div>
     
-    <!-- Settings Modal (Placeholder) -->
+    <!-- Settings Modal -->
     <div id="settings-modal" class="modal">
-      <div class="modal-content mario-card">
+      <div class="modal-content mario-card" style="max-width: 500px;">
         <h3 class="retro-title">SETTINGS</h3>
-        <p style="font-size: 12px; margin-bottom: 20px; line-height: 1.6;">FUTURE UPDATES WILL INCLUDE:</p>
-        <ul style="text-align: left; font-size: 11px; list-style: square; margin-bottom: 30px; line-height: 2;">
-          <li>ART & SPRITES</li>
-          <li>MUSIC & SFX</li>
-          <li>CONTROLS</li>
-          <li>DIFFICULTY</li>
-        </ul>
-        <div class="modal-actions">
+        
+        <div class="settings-section">
+          <h4 class="settings-label" style="font-size: 14px; margin-bottom: 20px; color: var(--mario-yellow);">SELECT CHARACTER:</h4>
+          <div class="character-grid state-small">
+            <div class="char-option active" data-skin="mario">
+              <div class="char-preview mario"></div>
+              <span>MARIO</span>
+            </div>
+            <div class="char-option" data-skin="luigi">
+              <div class="char-preview luigi"></div>
+              <span>LUIGI</span>
+            </div>
+            <div class="char-option" data-skin="jacob">
+              <div class="char-preview jacob"></div>
+              <span>JACOB</span>
+            </div>
+            <div class="char-option" data-skin="sean">
+              <div class="char-preview sean"></div>
+              <span>SEAN</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-actions" style="margin-top: 30px;">
           <button id="btn-close-settings" class="mario-btn">CLOSE</button>
         </div>
       </div>

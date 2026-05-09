@@ -803,7 +803,7 @@ function PlayerDie(lobby, pId) {
         setTimeout(() => {
             RestartLevel(lobby);
             lobby.levelIsRestarting = false;
-        }, 2000);
+        }, 3500); // Extended to 3.5s for death sound
     } else {
         // Check if all active players are dead
         const activePlayers = Object.values(lobby.players).filter(p => p.levelId);
@@ -818,7 +818,7 @@ function PlayerDie(lobby, pId) {
             setTimeout(() => {
                 console.log(`[Game Over] Triggering EndLevel for lobby ${lobby.id}`);
                 EndLevel(lobby);
-            }, 2000);
+            }, 3500); // Extended for death sound
         }
     }
 }
@@ -1079,7 +1079,7 @@ function EndLevel(lobby) {
             }
             RestartLevel(lobby);
             lobby.levelIsRestarting = false;
-        }, 2000);
+        }, 6000); // Extended to 6s for level complete music
     }
 }
 
@@ -1167,9 +1167,14 @@ function RestartLevel(lobby) {
 io.on('connection', (socket) => {
     console.log('User connected:', socket.id);
 
-    socket.on('registerUsername', (username) => {
+    socket.on('registerUsername', (data) => {
+        const username = typeof data === 'string' ? data : data.username;
+        const skin = typeof data === 'object' ? data.skin : null;
+        
         socket.username = username;
-        console.log(`Socket ${socket.id} registered as ${username}`);
+        if (skin) socket.skin = skin;
+        
+        console.log(`Socket ${socket.id} registered as ${username}${skin ? ` with skin ${skin}` : ''}`);
     });
 
     // Send available lobbies on connection
@@ -1231,7 +1236,8 @@ io.on('connection', (socket) => {
             invulnTimer: 0, dead: false, runStartTime: Date.now(),
             levelId: lobby.currentLevel,
             score: 0,
-            stompMultiplier: 1
+            stompMultiplier: 1,
+            skin: data.skin || 'mario'
         };
 
         // Notify lobby members
@@ -1413,6 +1419,7 @@ io.on('connection', (socket) => {
             p.y = movementData.y;
             p.anim = movementData.anim;
             p.flipX = movementData.flipX;
+            if (movementData.skin) p.skin = movementData.skin;
 
             // Reset stomp multiplier if on ground
             const footX = Math.floor(p.x / TILE_SIZE);
