@@ -779,6 +779,15 @@ body.in-game #hud-layer {
 .char-preview.luigi { background-image: url('/luigi_sprite.png'); }
 .char-preview.jacob { background-image: url('/jacob_sprite.png'); }
 .char-preview.sean  { background-image: url('/sean_sprite.png'); }
+.char-preview.random, .char-preview.chaos { 
+  background-image: url('/mario_sprite.png'); 
+  animation: char-rainbow 2s linear infinite;
+}
+
+@keyframes char-rainbow {
+  0% { filter: hue-rotate(0deg); }
+  100% { filter: hue-rotate(360deg); }
+}
 
 /* State: Small */
 .character-grid.state-small .char-preview {
@@ -825,8 +834,8 @@ body.in-game #hud-layer {
 
 @keyframes fire-run {
   0%   { background-position: -948px -488px; }
-  33%  { background-position: -1044px -488px; }
-  66%  { background-position: -1140px -488px; }
+  33%  { background-position: -1052px -488px; }
+  66%  { background-position: -1156px -488px; }
   100% { background-position: -948px -488px; }
 }
 
@@ -835,3 +844,244 @@ body.in-game #hud-layer {
   justify-content: flex-end;
 }
 
+
+/* Settings Tabs */
+.settings-tabs {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+  border-bottom: 4px solid rgba(0,0,0,0.3);
+  padding-bottom: 10px;
+}
+
+.settings-tab {
+  background: rgba(0,0,0,0.5);
+  border: 2px solid white;
+  color: white;
+  padding: 8px 12px;
+  font-family: var(--mario-font);
+  font-size: 10px;
+  cursor: pointer;
+  flex: 1;
+}
+
+.settings-tab:hover {
+  background: var(--mario-red);
+}
+
+.settings-tab.active {
+  background: var(--mario-yellow);
+  color: black;
+  border-color: black;
+  box-shadow: 4px 4px 0px rgba(0,0,0,0.5);
+}
+
+/* Tab Content */
+.tab-content {
+  display: none;
+}
+
+.tab-content.active {
+  display: block;
+  animation: fadeIn 0.2s steps(4);
+}
+
+/* Scrollable Container */
+.settings-container.scrollable {
+  max-height: 350px;
+  overflow-y: auto;
+  padding-right: 15px;
+  margin-bottom: 20px;
+}
+
+/* Retro Scrollbar */
+.scrollable::-webkit-scrollbar {
+  width: 12px;
+}
+
+.scrollable::-webkit-scrollbar-track {
+  background: #000;
+  border: 2px solid var(--mario-white);
+}
+
+.scrollable::-webkit-scrollbar-thumb {
+  background: var(--mario-red);
+  border: 2px solid var(--mario-white);
+}
+
+.scrollable::-webkit-scrollbar-thumb:hover {
+  background: var(--mario-yellow);
+}
+
+/* Control Settings */
+.controls-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  background: rgba(0,0,0,0.2);
+  padding: 15px;
+  border: 2px solid rgba(255,255,255,0.1);
+}
+
+.control-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.control-item label {
+  font-size: 10px;
+  color: var(--mario-white);
+}
+
+.control-rebind-btn {
+  min-width: 120px;
+  text-align: center;
+  font-size: 10px !important;
+  background: rgba(0,0,0,0.5) !important;
+  border: 2px solid white !important;
+}
+
+.control-rebind-btn:hover {
+  background: var(--mario-red) !important;
+}
+
+.control-rebind-btn.waiting {
+  animation: pulse-red 1s infinite alternate;
+  background: var(--mario-red) !important;
+  color: white !important;
+}
+
+@keyframes pulse-red {
+  from { opacity: 0.6; }
+  to { opacity: 1; }
+}
+
+/* Volume Sliders */
+.volume-control {
+  width: 100%;
+}
+
+.volume-label-row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  font-size: 10px;
+}
+
+.mario-slider {
+  -webkit-appearance: none;
+  width: 100%;
+  height: 12px;
+  background: #000;
+  border: 3px solid var(--mario-white);
+  outline: none;
+  cursor: pointer;
+}
+
+.mario-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 24px;
+  height: 24px;
+  background: var(--mario-red);
+  border: 3px solid var(--mario-white);
+  cursor: pointer;
+  box-shadow: 4px 4px 0px rgba(0,0,0,0.5);
+}
+
+.mario-slider::-moz-range-thumb {
+  width: 24px;
+  height: 24px;
+  background: var(--mario-red);
+  border: 3px solid var(--mario-white);
+  cursor: pointer;
+  box-shadow: 4px 4px 0px rgba(0,0,0,0.5);
+}
+
+/* Chroma Modal Styles */
+.chroma-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  margin-bottom: 10px;
+}
+
+.chroma-preview-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 4px solid rgba(255, 255, 255, 0.1);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.chroma-controls {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.chroma-input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  text-align: left;
+}
+
+.chroma-input-group label {
+  font-size: 10px;
+  color: var(--mario-yellow);
+  letter-spacing: 1px;
+}
+
+.color-picker-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  background: #000;
+  border: 4px solid var(--mario-white);
+  padding: 10px;
+}
+
+input[type="color"] {
+  -webkit-appearance: none;
+  border: none;
+  width: 40px;
+  height: 40px;
+  cursor: pointer;
+  background: none;
+  padding: 0;
+}
+
+input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+input[type="color"]::-webkit-color-swatch {
+  border: 2px solid white;
+}
+
+.color-hex {
+  font-size: 14px;
+  color: white;
+  text-transform: uppercase;
+  flex: 1;
+}
+
+#chroma-char-preview {
+  width: 128px;
+  height: 128px;
+  image-rendering: pixelated;
+  margin-top: 10px;
+}
+
+/* Ensure color inputs don't look broken in dark mode */
+@media (prefers-color-scheme: dark) {
+  input[type="color"]::-webkit-color-swatch {
+    border-color: white;
+  }
+}

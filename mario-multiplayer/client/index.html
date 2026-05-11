@@ -5,7 +5,7 @@
   <meta charset="UTF-8" />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Super Mario Multiplayer</title>
+  <title>Super CSE108 Multiplayer</title>
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
 </head>
 
@@ -15,7 +15,7 @@
     <div id="auth-screen" class="screen active">
       <div class="mario-logo">
         <span class="word-super">SUPER</span>
-        <span class="word-mario">MARIO</span>
+        <span class="word-mario">CSE108</span>
         <span class="word-multi">MULTIPLAYER</span>
       </div>
       <div class="auth-container">
@@ -82,7 +82,7 @@
     <div id="title-screen" class="screen">
       <div class="mario-logo">
         <span class="word-super">SUPER</span>
-        <span class="word-mario">MARIO</span>
+        <span class="word-mario">CSE108</span>
         <span class="word-multi">MULTIPLAYER</span>
       </div>
 
@@ -197,6 +197,7 @@
         <select id="lb-type-select" style="padding: 5px; font-family: 'Press Start 2P', cursive; font-size: 8px; background: #000; color: #fff; border: 2px solid #fff;">
           <option value="time">BY TIME</option>
           <option value="score">BY SCORE</option>
+          <option value="pvp">PVP WINS</option>
         </select>
       </div>
 
@@ -328,27 +329,105 @@
     
     <!-- Settings Modal -->
     <div id="settings-modal" class="modal">
-      <div class="modal-content mario-card" style="max-width: 500px;">
+      <div class="modal-content mario-card" style="max-width: 600px;">
         <h3 class="retro-title">SETTINGS</h3>
         
-        <div class="settings-section">
-          <h4 class="settings-label" style="font-size: 14px; margin-bottom: 20px; color: var(--mario-yellow);">SELECT CHARACTER:</h4>
-          <div class="character-grid state-small">
-            <div class="char-option active" data-skin="mario">
-              <div class="char-preview mario"></div>
-              <span>MARIO</span>
+        <div class="settings-tabs">
+          <button class="settings-tab active" data-tab="char">CHAR</button>
+          <button class="settings-tab" data-tab="audio">AUDIO</button>
+          <button class="settings-tab" data-tab="controls">KEYS</button>
+        </div>
+
+        <div class="settings-container scrollable">
+          <!-- Character Tab -->
+          <div id="tab-char" class="tab-content active">
+            <div class="settings-section">
+              <h4 class="settings-label" style="font-size: 14px; margin-bottom: 20px; color: var(--mario-yellow);">SELECT CHARACTER:</h4>
+              <div class="character-grid state-small">
+                <div class="char-option active" data-skin="mario">
+                  <div class="char-preview mario"></div>
+                  <span>MARIO</span>
+                </div>
+                <div class="char-option" data-skin="luigi">
+                  <div class="char-preview luigi"></div>
+                  <span>LUIGI</span>
+                </div>
+                <div class="char-option" data-skin="jacob">
+                  <div class="char-preview jacob"></div>
+                  <span>JACOB</span>
+                </div>
+                <div class="char-option" data-skin="sean">
+                  <div class="char-preview sean"></div>
+                  <span>SEAN</span>
+                </div>
+                <div class="char-option" data-skin="random">
+                  <div class="char-preview random"></div>
+                  <span>RANDOM</span>
+                </div>
+                <div class="char-option" data-skin="chaos">
+                  <div class="char-preview chaos"></div>
+                  <span>CHAOS</span>
+                </div>
+              </div>
             </div>
-            <div class="char-option" data-skin="luigi">
-              <div class="char-preview luigi"></div>
-              <span>LUIGI</span>
+          </div>
+
+          <!-- Audio Tab -->
+          <div id="tab-audio" class="tab-content">
+            <div class="settings-section">
+              <h4 class="settings-label" style="font-size: 14px; margin-bottom: 20px; color: var(--mario-yellow);">AUDIO SETTINGS:</h4>
+              
+              <div class="volume-control">
+                <div class="volume-label-row">
+                  <label>MUSIC VOLUME:</label>
+                  <span id="music-volume-value">50%</span>
+                </div>
+                <input type="range" id="music-volume-slider" min="0" max="1" step="0.05" value="0.5" class="mario-slider">
+              </div>
+
+              <div class="volume-control" style="margin-top: 20px;">
+                <div class="volume-label-row">
+                  <label>SFX VOLUME:</label>
+                  <span id="sfx-volume-value">50%</span>
+                </div>
+                <input type="range" id="sfx-volume-slider" min="0" max="1" step="0.05" value="0.5" class="mario-slider">
+              </div>
             </div>
-            <div class="char-option" data-skin="jacob">
-              <div class="char-preview jacob"></div>
-              <span>JACOB</span>
-            </div>
-            <div class="char-option" data-skin="sean">
-              <div class="char-preview sean"></div>
-              <span>SEAN</span>
+          </div>
+
+          <!-- Controls Tab -->
+          <div id="tab-controls" class="tab-content">
+            <div class="settings-section">
+              <h4 class="settings-label" style="font-size: 14px; margin-bottom: 20px; color: var(--mario-yellow);">CONTROLS:</h4>
+              <div class="controls-grid">
+                <div class="control-item">
+                  <label>LEFT:</label>
+                  <button class="mario-btn small control-rebind-btn" data-action="left">A / LEFT</button>
+                </div>
+                <div class="control-item">
+                  <label>RIGHT:</label>
+                  <button class="mario-btn small control-rebind-btn" data-action="right">D / RIGHT</button>
+                </div>
+                <div class="control-item">
+                  <label>UP / JUMP:</label>
+                  <button class="mario-btn small control-rebind-btn" data-action="up">W / UP</button>
+                </div>
+                <div class="control-item">
+                  <label>DOWN / DUCK:</label>
+                  <button class="mario-btn small control-rebind-btn" data-action="down">S / DOWN</button>
+                </div>
+                <div class="control-item">
+                  <label>FIRE / RUN:</label>
+                  <button class="mario-btn small control-rebind-btn" data-action="fire">X / SHIFT</button>
+                </div>
+                <div class="control-item">
+                  <label>RESTART:</label>
+                  <button class="mario-btn small control-rebind-btn" data-action="restart">R</button>
+                </div>
+              </div>
+              <div style="margin-top: 20px; text-align: center;">
+                <button id="btn-reset-controls" class="mario-btn small" style="width: 100%; background: var(--mario-brick) !important; border: 2px solid white !important;">RESET TO DEFAULT</button>
+              </div>
             </div>
           </div>
         </div>
@@ -368,8 +447,48 @@
           <button id="btn-settings-in-game" class="mario-btn">SETTINGS</button>
           <button id="btn-quit-to-menu" class="mario-btn secondary">QUIT TO MENU</button>
         </div>
+      </div>
+    </div>
+
+    <!-- Chroma Selection Modal -->
+    <div id="chroma-modal" class="modal">
+      <div class="modal-content mario-card" style="max-width: 450px;">
+        <h3 class="retro-title">CHROMA SETTINGS</h3>
+        
+        <div class="chroma-container">
+          <div class="chroma-preview-area">
+            <canvas id="chroma-char-preview" width="64" height="64"></canvas>
+            <p id="chroma-skin-name" style="font-size: 10px; color: var(--mario-yellow); margin-top: 10px;">MARIO</p>
+          </div>
+
+          <div class="chroma-controls">
+            <div class="chroma-input-group">
+              <label>PRIMARY COLOR:</label>
+              <div class="color-picker-wrapper">
+                <input type="color" id="color-primary" value="#ff0000">
+                <span class="color-hex" id="hex-primary">#FF0000</span>
+              </div>
+            </div>
+
+            <div class="chroma-input-group">
+              <label>SECONDARY COLOR:</label>
+              <div class="color-picker-wrapper">
+                <input type="color" id="color-secondary" value="#8b4513">
+                <span class="color-hex" id="hex-secondary">#8B4513</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-actions" style="margin-top: 30px;">
+          <button id="btn-apply-chroma" class="mario-btn">APPLY COLORS</button>
+          <div style="display: flex; gap: 10px;">
+            <button id="btn-default-chroma" class="mario-btn secondary" style="flex: 1;">DEFAULT</button>
+            <button id="btn-cancel-chroma" class="mario-btn secondary" style="flex: 1;">CANCEL</button>
+          </div>
         </div>
       </div>
+    </div>
     <!-- Results Screen -->
     <div id="results-screen" class="screen">
       <h2 class="retro-title" id="results-title">MATCH RESULTS</h2>
