@@ -78,23 +78,6 @@ const WORLD_1_2 = [
   "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
 ];
 
-const BATTLE_ARENA = [
-  "--------------------------------------------------",
-  "--------------------------------------------------",
-  "-----------?----------*----------?----------------",
-  "--------------------------------------------------",
-  "--------------------------------------------------",
-  "-----------SS----SS---SS----SS---SS---------------",
-  "-----<>----------------------------------<>-------",
-  "-----[]----------C---C---C---C-----------[]-------",
-  "--SSSSSSSS----------------------------SSSSSSSS----",
-  "------------------SSSSSSSSSS----------------------",
-  "---C---C---C---C---C---C---C---C---C---C---C------",
-  "--------------------------------------------------",
-  "---E---SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS------E---",
-  "---S------------------------------------------S---",
-  "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
-];
 
 const SKY_RACE = [
   "----E--------E----------------------------------------------------------------------------------------------------------------------",
@@ -167,11 +150,6 @@ export const MAPS = {
   },
   'world-1-2': {
     data: WORLD_1_2,
-    warps: {},
-    spawn: { x: 150, y: 700 }
-  },
-  'battle-arena': {
-    data: BATTLE_ARENA,
     warps: {},
     spawn: { x: 150, y: 700 }
   },
@@ -249,7 +227,7 @@ export function getBlockContent(x, y, levelId = 'world-1-1', playerState = 0) {
 export function buildLevel(levelId = 'world-1-1') {
   const mapData = MAPS[levelId].data;
   // Levels that should have the automatic "ground fill" at the bottom
-  const needsGroundFill = ['world-1-1', 'world-1-2', 'underground', 'battle-arena', 'world-1-3', 'world-2-1'];
+  const needsGroundFill = ['world-1-1', 'world-1-2', 'underground', 'world-1-3', 'world-2-1'];
   const hasFill = needsGroundFill.includes(levelId);
 
   const height = mapData.length + (hasFill ? 1 : 0);

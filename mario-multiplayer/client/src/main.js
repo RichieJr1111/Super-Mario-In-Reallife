@@ -1783,9 +1783,9 @@ function create() {
 
   otherPlayers = this.physics.add.group();
 
-  // Initialize random skin texture if selected
-  if ((selectedSkin === 'random' || selectedSkin === 'chaos') && player && player.skinData) {
-    const animPrefix = `random_${socket.id}`;
+  // Initialize custom skin texture if selected
+  if (player && player.skinData) {
+    const animPrefix = `custom_${socket.id}`;
     randomizeSkinTexture(this, player.skinData, animPrefix);
     player.setTexture(animPrefix);
   }
@@ -1844,8 +1844,8 @@ function create() {
       const skin = playerInfo.skin || 'mario';
       let textureKey = skin;
 
-      if ((skin === 'random' || skin === 'chaos') && playerInfo.skinData) {
-        textureKey = `random_${playerInfo.id}`;
+      if (playerInfo.skinData) {
+        textureKey = `custom_${playerInfo.id}`;
         
         // Update skinData comparison to trigger re-randomization on restart/skin change
         const currentSkinDataStr = otherPlayer.skinData ? JSON.stringify(otherPlayer.skinData) : "";
@@ -1855,6 +1855,9 @@ function create() {
           randomizeSkinTexture(this, playerInfo.skinData, textureKey);
           otherPlayer.skinData = playerInfo.skinData;
         }
+      } else {
+        // If they switched from custom back to default, clear skinData
+        otherPlayer.skinData = null;
       }
 
       if (otherPlayer.texture.key !== textureKey) {
