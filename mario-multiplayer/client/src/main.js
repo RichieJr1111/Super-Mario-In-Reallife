@@ -39,6 +39,8 @@ const DRAG = 600;
 const SKID_DRAG = 1200;
 const JUMP_FORCE = -1100;
 const VARIABLE_JUMP_MODIFIER = 0.5;
+const MOVE_SEND_RATE = 33; // Send updates every 33ms (~30 FPS)
+let lastMoveSentTime = 0;
 
 let bgm;
 let currentMusicKey = null;
@@ -92,12 +94,33 @@ function setupActionKeys(scene) {
   }
 }
 
+function isTyping() {
+  const active = document.activeElement;
+  return active && ['INPUT', 'TEXTAREA', 'SELECT'].includes(active.tagName);
+}
+
+// Global listeners to stop propagation for keyboard events on inputs
+// This prevents Phaser from capturing keys (like WASD) while the user is typing
+window.addEventListener('keydown', (e) => {
+  if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) {
+    e.stopPropagation();
+  }
+}, true);
+
+window.addEventListener('keyup', (e) => {
+  if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) {
+    e.stopPropagation();
+  }
+}, true);
+
 function isActionDown(action) {
+  if (isTyping()) return false;
   if (!activeActionKeys[action]) return false;
   return activeActionKeys[action].some(key => key.isDown);
 }
 
 function isActionJustDown(action) {
+  if (isTyping()) return false;
   if (!activeActionKeys[action]) return false;
   return activeActionKeys[action].some(key => Phaser.Input.Keyboard.JustDown(key));
 }
@@ -113,6 +136,8 @@ let fireballs;
 let enemies;
 let fireTrails = {}; // { [fireballId]: emitter }
 let shootTimer = 0;
+let lastEnemyUpdates = {}; // { [enemyId]: { x, y } }
+let lastItemUpdates = {};  // { [itemId]: { x, y } }
 let keyEsc;
 let keySpace;
 let spectatingPlayerId = null;
@@ -230,7 +255,6 @@ function showScreen(screenId) {
   }
 
   uiLayer.style.display = 'flex';
-  console.log(`[UI] Showing screen: ${screenId}, uiLayer display: flex`);
   if (screenId !== 'leaderboard' && window.leaderboardInterval) {
     clearInterval(window.leaderboardInterval);
     window.leaderboardInterval = null;
@@ -282,6 +306,9 @@ function exitGameToMainMenu() {
   runTime = 0;
   isTimerRunning = false;
   currentWarps = {};
+
+  // Re-initialize game instance for future sessions
+  initSocket();
 }
 
 
@@ -290,13 +317,14 @@ const SERVER_URL = window.location.hostname === 'localhost'
   : window.location.origin;
 
 function initSocket() {
-  if (socket) return;
-  socket = io(SERVER_URL);
-
   // Initialize Phaser game early to load textures for previews
+  // We do this before the socket check to ensure the game is recreated if it was destroyed
   if (!game) {
     game = new Phaser.Game(config);
   }
+
+  if (socket) return;
+  socket = io(SERVER_URL);
 
   socket.on('lobbyList', (lobbies) => {
     lobbyList.innerHTML = '';
@@ -748,11 +776,15 @@ document.getElementById('btn-signup').addEventListener('click', handleSignup);
 document.getElementById('btn-switch-signup').addEventListener('click', () => {
   loginForm.classList.remove('active');
   signupForm.classList.add('active');
+  const firstInput = signupForm.querySelector('input');
+  if (firstInput) firstInput.focus();
 });
 
 document.getElementById('btn-switch-login').addEventListener('click', () => {
   signupForm.classList.remove('active');
   loginForm.classList.add('active');
+  const firstInput = loginForm.querySelector('input');
+  if (firstInput) firstInput.focus();
 });
 
 document.getElementById('btn-logout').addEventListener('click', () => {
@@ -1564,6 +1596,7 @@ function preload() {
 
   // Music
   this.load.audio('music_overworld', '/sounds/01. Ground Theme.mp3');
+  this.load.audio('music_underground', '/sounds/02. Underground Theme.mp3');
   this.load.audio('music_invincible', '/sounds/05. Invincibility Theme.mp3');
   this.load.audio('music_victory', '/sounds/06. Level Complete Theme.mp3');
 }
@@ -1578,8 +1611,9 @@ function handleInitMap(mapData) {
     currentMusicKey = null;
   }
 
-  // Start Overworld Theme
-  playMusic(this, 'music_overworld');
+  // Start appropriate Theme
+  const musicKey = mapData.levelId === 'underground' ? 'music_underground' : 'music_overworld';
+  playMusic(this, musicKey);
 
   if (this.physics && this.physics.world) {
     this.physics.world.resume();
@@ -1644,7 +1678,21 @@ function handleInitMap(mapData) {
     this.cameras.main.setBounds(0, 0, mapWidth, mapHeight);
     this.cameras.main.setZoom(0.5);
 
-    // Immediate camera snap to spawn point to avoid "sliding" feel from old location
+    // Reset player state if it exists
+    if (player) {
+      player.x = mapData.spawnX;
+      player.y = mapData.spawnY;
+      player.warping = false;
+      player.isAnimating = false;
+      player.setDepth(5);
+      player.body.setAllowGravity(true);
+      player.lastRestartTime = Date.now();
+      
+      // Force immediate camera snap
+      this.cameras.main.scrollX = player.x - 400;
+      this.cameras.main.scrollY = player.y - 225;
+      this.cameras.main.startFollow(player, true, 1, 1);
+    }
     if (mapData.spawnX !== undefined && mapData.spawnY !== undefined) {
       this.cameras.main.centerOn(mapData.spawnX, mapData.spawnY);
     }
@@ -1775,7 +1823,21 @@ function handleInitEnemies(data) {
 }
 
 function create() {
-  console.log('Phaser Create started');
+  // Clean up existing socket listeners from previous sessions to prevent accumulation
+  const gameEvents = [
+    'levelFinished', 'restartDenied', 'playFlagAnimation', 'currentPlayers',
+    'newPlayer', 'playerMoved', 'tileUpdate', 'playerDisconnected',
+    'fireballSpawned', 'fireballUpdates', 'fireballDestroyed',
+    'playerKnockback', 'initItems', 'itemSpawned', 'itemUpdates',
+    'itemDestroyed', 'playerBounce', 'initEnemies', 'enemySpawned',
+    'enemyUpdates', 'enemyMoved', 'enemyDestroyed', 'scoreGained'
+  ];
+  if (socket) {
+    socket.off('initMap');
+    gameEvents.forEach(evt => socket.off(evt));
+  }
+
+  socket.on('initMap', (mapData) => handleInitMap.call(this, mapData));
 
   fireballs = this.add.group();
   enemies = this.add.group();
@@ -1792,9 +1854,6 @@ function create() {
 
   setupAnimations(this);
   setupActionKeys(this);
-
-  socket.off('initMap');
-  socket.on('initMap', (mapData) => handleInitMap.call(this, mapData));
 
   socket.on('levelFinished', () => {
     if (player && player.body) {
@@ -2050,8 +2109,8 @@ function create() {
     updates.forEach(update => {
       const itemSprite = this.items.getChildren().find(i => i.id === update.id);
       if (itemSprite) {
-        itemSprite.x = update.x;
-        itemSprite.y = update.y;
+        itemSprite.targetX = update.x;
+        itemSprite.targetY = update.y;
       }
     });
   });
@@ -2095,8 +2154,8 @@ function create() {
     updates.forEach(u => {
       const e = enemies.getChildren().find(sprite => sprite.id === u.id);
       if (e) {
-        e.x = u.x;
-        e.y = u.y;
+        e.targetX = u.x;
+        e.targetY = u.y;
         if (u.state) e.enemyState = u.state;
 
         if (e.type === 'goomba') {
@@ -2639,10 +2698,18 @@ function addOtherPlayers(scene, playerInfo) {
 }
 
 let lastEmitTime = 0;
-const EMIT_THRESHOLD_MS = 15; // Decreased from 33ms to 15ms (~60fps) for smoother jump tracking
+const EMIT_THRESHOLD_MS = 33; // Increased to 33ms (~30 FPS) to reduce server load
 const MOVE_THRESHOLD = 0.1;   // Slightly more sensitive movement detection
 
 function update(time, delta) {
+  // Disable keyboard manager if user is typing in an input field
+  // This allows WASD etc. to reach the DOM and prevents game actions
+  if (this.input && this.input.keyboard) {
+    this.input.keyboard.enabled = !isTyping();
+    this.input.keyboard.preventDefault = !isTyping();
+  }
+  if (isTyping()) return;
+
   if (isTimerRunning) {
     runTime += delta;
     if (currentTimeDisplay) currentTimeDisplay.innerText = formatTime(runTime);
@@ -2703,6 +2770,24 @@ function update(time, delta) {
         otherPlayer.usernameLabel.setPosition(otherPlayer.x, labelY);
         otherPlayer.usernameBg.setPosition(otherPlayer.x, labelY);
       }
+    }
+  });
+
+  // Interpolate Enemies
+  enemies.getChildren().forEach((enemy) => {
+    if (enemy.targetX !== undefined && enemy.targetY !== undefined) {
+      const lerpFactor = 0.3; // Slightly slower lerp for enemies
+      enemy.x = Phaser.Math.Linear(enemy.x, enemy.targetX, lerpFactor);
+      enemy.y = Phaser.Math.Linear(enemy.y, enemy.targetY, lerpFactor);
+    }
+  });
+
+  // Interpolate Items
+  this.items.getChildren().forEach((item) => {
+    if (item.targetX !== undefined && item.targetY !== undefined) {
+      const lerpFactor = 0.3;
+      item.x = Phaser.Math.Linear(item.x, item.targetX, lerpFactor);
+      item.y = Phaser.Math.Linear(item.y, item.targetY, lerpFactor);
     }
   });
 
@@ -3014,7 +3099,8 @@ function update(time, delta) {
     if (player.invincible && currentMusicKey !== 'music_invincible' && currentMusicKey !== 'music_victory') {
       playMusic(this, 'music_invincible');
     } else if (!player.invincible && currentMusicKey === 'music_invincible') {
-      playMusic(this, 'music_overworld');
+      const normalMusic = player.levelId === 'underground' ? 'music_underground' : 'music_overworld';
+      playMusic(this, normalMusic);
     }
   }
 }
@@ -3024,6 +3110,7 @@ function playPipeEnterAnimation(scene, sprite, pipeCenterX, type) {
   playSound(scene, 'pipepowerdown');
   sprite.isAnimating = true;
   sprite.warping = true;
+  socket.emit('startWarp'); // Notify server to freeze our state
   sprite.body.setAllowGravity(false);
   sprite.body.setVelocity(0, 0);
   sprite.setDepth(1); // Go behind pipe

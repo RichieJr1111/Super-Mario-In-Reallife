@@ -37,7 +37,7 @@ let lastGlobalRefresh = Date.now();
 
 // Global background refresh (Scheduled Refresh pattern)
 async function refreshAllLeaderboards() {
-    console.log('[Background] Refreshing all leaderboards...');
+    // Leaderboard refresh happens in background
     const levels = Object.keys(MAPS);
     const types = ['time', 'score', 'pvp'];
 
@@ -442,6 +442,7 @@ setInterval(() => {
             if (enemy.damageCooldown > 0) enemy.damageCooldown -= 33;
             const levelId = enemy.levelId || 'world-1-1';
             if (!levelUpdates[levelId]) levelUpdates[levelId] = { itemUpdates: [], enemyUpdates: [], fireballUpdates: [] };
+            if (enemy.isWarping) return; // Skip logic if warping
 
             // Piranha Plant Logic (Vertical oscillation)
             if (enemy.type === 'piranha') {
@@ -529,7 +530,7 @@ setInterval(() => {
             // Check Player Collisions
             Object.keys(lobby.players).forEach(pId => {
                 const player = lobby.players[pId];
-                if (player.levelId !== levelId) return;
+                if (player.levelId !== levelId || player.isWarping) return;
                 const dx = Math.abs(enemy.x - player.x);
                 const dy = Math.abs(enemy.y - player.y);
 
@@ -601,7 +602,7 @@ setInterval(() => {
         // Check Flag Collisions
         Object.keys(lobby.players).forEach(pId => {
             const p = lobby.players[pId];
-            if (p.dead) return;
+            if (p.dead || p.isWarping) return;
 
             const checkPoints = [
                 { x: p.x, y: p.y },
@@ -651,7 +652,7 @@ setInterval(() => {
         // Check Fall Death
         Object.keys(lobby.players).forEach(pId => {
             const p = lobby.players[pId];
-            if (!p.dead && p.y > (getLobbyMap(lobby, p.levelId).height * TILE_SIZE)) {
+            if (!p.dead && !p.isWarping && p.y > (getLobbyMap(lobby, p.levelId).height * TILE_SIZE)) {
                 PlayerDie(lobby, pId);
             }
         });
@@ -666,7 +667,7 @@ setInterval(() => {
                     const pA = lobby.players[idA];
                     const pB = lobby.players[idB];
 
-                    if (pA.dead || pB.dead || pA.levelId !== pB.levelId) continue;
+                    if (pA.dead || pB.dead || pA.isWarping || pB.isWarping || pA.levelId !== pB.levelId) continue;
 
                     const dx = Math.abs(pA.x - pB.x);
                     const dy = Math.abs(pA.y - pB.y);
@@ -823,8 +824,6 @@ function PlayerDie(lobby, pId) {
         const activePlayers = Object.values(lobby.players).filter(p => p.levelId);
         const allDead = activePlayers.length > 0 && activePlayers.every(player => player.dead);
 
-        console.log(`[Death Check] Lobby: ${lobby.id}, Active: ${activePlayers.length}, AllDead: ${allDead}`);
-        activePlayers.forEach(ap => console.log(`  - Player ${ap.username || ap.id}: dead=${ap.dead}`));
 
         if (allDead) {
             if (lobby.levelIsRestarting) return;
@@ -833,7 +832,6 @@ function PlayerDie(lobby, pId) {
             if (lobby.restartTimeout) clearTimeout(lobby.restartTimeout);
             lobby.restartTimeout = setTimeout(() => {
                 lobby.restartTimeout = null;
-            console.log(`[Game Over] Triggering EndLevel for lobby ${lobby.id}`);
             EndLevel(lobby);
         }, 3000); // Set to 3s to match animation/sound
     }
@@ -896,6 +894,7 @@ async function WarpPlayer(lobby, pId, warpInfo) {
             p.x = startX + (index * spacing);
             p.y = warpInfo.y;
             p.vy = 0;
+            p.isWarping = false; // Warp complete
 
             if (pSocket) {
                 pSocket.leave(`${lobby.id}_${oldLevelId}`);
@@ -941,6 +940,7 @@ async function WarpPlayer(lobby, pId, warpInfo) {
         p.x = warpInfo.x;
         p.y = warpInfo.y;
         p.vy = 0;
+        p.isWarping = false;
 
         // Send init sequence ONLY to the warping player
         socket.emit('initMap', {
@@ -987,13 +987,29 @@ async function WarpPlayer(lobby, pId, warpInfo) {
 }
 
 function EndLevel(lobby) {
+    if (lobby.endLevelInProgress) return;
+    lobby.endLevelInProgress = true;
+
     console.log(`[EndLevel] Started for lobby ${lobby.id}`);
     lobby.levelIsRestarting = true;
+
+    // Capture snapshots of player states before resetting them for the results screen
+    const playerSnapshots = {};
+    const playerIds = Object.keys(lobby.players);
+    playerIds.forEach(id => {
+        const p = lobby.players[id];
+        playerSnapshots[id] = {
+            dead: !!p.dead,
+            finishTimeMs: p.finishTimeMs,
+            score: p.score || 0,
+            runStartTime: p.runStartTime,
+            username: p.username || 'Guest'
+        };
+    });
 
     // Immediately teleport all players back to spawn (alive and idling) for the results screen
     const levelId = lobby.currentLevel || 'world-1-1';
     const spawnPos = MAPS[levelId].spawn || { x: 150, y: 700 };
-    const playerIds = Object.keys(lobby.players);
     const spacing = 64;
     const totalWidth = (playerIds.length - 1) * spacing;
     const startX = spawnPos.x - (totalWidth / 2);
@@ -1017,15 +1033,17 @@ function EndLevel(lobby) {
 
     // Calculate times and check for new best
     const now = Date.now();
-    const savePromises = Object.keys(lobby.players).map(async (pId) => {
-        const p = lobby.players[pId];
-        if (p && p.runStartTime && !p.dead) {
-            const elapsed = p.finishTimeMs || (now - p.runStartTime);
+    const savePromises = playerIds.map(async (pId) => {
+        const snapshot = playerSnapshots[pId];
+
+        // Only save high score if the player was alive AND actually finished the level
+        if (snapshot && snapshot.runStartTime && !snapshot.dead && snapshot.finishTimeMs) {
+            const elapsed = snapshot.finishTimeMs;
             try {
                 // Get personal bests to check if this run is a new best
                 const existingBest = await HighScore.findOne({
                     where: {
-                        playerName: p.username || 'Guest',
+                        playerName: snapshot.username,
                         levelId: lobby.currentLevel || 'world-1-1'
                     },
                     attributes: [
@@ -1036,24 +1054,24 @@ function EndLevel(lobby) {
                 });
 
                 const isNewTimeBest = !existingBest || !existingBest.bestTime || elapsed < existingBest.bestTime;
-                const isNewScoreBest = !existingBest || !existingBest.bestScore || (p.score || 0) > existingBest.bestScore;
+                const isNewScoreBest = !existingBest || !existingBest.bestScore || (snapshot.score || 0) > existingBest.bestScore;
 
                 if (isNewTimeBest || isNewScoreBest) {
                     await HighScore.create({
                         timeMs: elapsed,
-                        score: p.score || 0,
-                        playerName: p.username || 'Guest',
+                        score: snapshot.score || 0,
+                        playerName: snapshot.username,
                         levelId: lobby.currentLevel || 'world-1-1'
                     });
-                    console.log(`[Score] Saved new best for ${p.username || 'Guest'}: Time=${elapsed}ms, Score=${p.score || 0}`);
+                    console.log(`[Score] Saved new best for ${snapshot.username}: Time=${elapsed}ms, Score=${snapshot.score}`);
                 } else {
-                    console.log(`[Score] Run for ${p.username || 'Guest'} not a personal best. Not saved.`);
+                    console.log(`[Score] Run for ${snapshot.username} not a personal best. Not saved.`);
                 }
 
                 // Send back the absolute personal best time for the UI
                 const finalBest = await HighScore.findOne({
                     where: {
-                        playerName: p.username || 'Guest',
+                        playerName: snapshot.username,
                         levelId: lobby.currentLevel || 'world-1-1'
                     },
                     order: [['timeMs', 'ASC']]
@@ -1064,6 +1082,10 @@ function EndLevel(lobby) {
                 }
             } catch (err) {
                 console.error('Error saving high score:', err);
+            }
+        } else {
+            if (snapshot) {
+                console.log(`[Score] Skipping high score for ${snapshot.username} (Dead: ${snapshot.dead}, Finished: ${!!snapshot.finishTimeMs})`);
             }
         }
     });
@@ -1078,14 +1100,17 @@ function EndLevel(lobby) {
     const shouldShowResults = (lobby.mode !== 'Singleplayer' && lobby.mode !== 'Speedrun');
 
     if (shouldShowResults) {
-        // Prepare results
-        const results = Object.values(lobby.players).map(p => ({
-            id: p.id,
-            username: p.username || 'Guest',
-            score: p.score || 0,
-            timeMs: p.runStartTime ? (now - p.runStartTime) : 0,
-            dead: !!p.dead
-        }));
+        // Prepare results using snapshots to reflect the state AT THE MOMENT the level ended
+        const results = playerIds.map(id => {
+            const snapshot = playerSnapshots[id];
+            return {
+                id: id,
+                username: snapshot.username,
+                score: snapshot.score,
+                timeMs: snapshot.finishTimeMs || (now - snapshot.runStartTime),
+                dead: snapshot.dead
+            };
+        });
 
         let winner = null;
         if (lobby.mode === 'PvP' && results.length > 0) {
@@ -1103,7 +1128,6 @@ function EndLevel(lobby) {
             }
         }
 
-        console.log(`[EndLevel] Emitting matchResults to ${results.length} players`);
         Object.keys(lobby.players).forEach(pId => {
             io.to(pId).emit('matchResults', {
                 results,
@@ -1227,6 +1251,7 @@ function RestartLevel(lobby) {
 
     setTimeout(() => {
         lobby.levelIsRestarting = false;
+        lobby.endLevelInProgress = false; // Reset the EndLevel guard
     }, 100); // Reduced to 100ms grace period
     lobby.flagHit = false; // Reset flag hit state
 
@@ -1738,6 +1763,13 @@ io.on('connection', (socket) => {
         if (readyCount >= players.length) {
             RestartLevel(lobby);
         }
+    });
+
+    socket.on('startWarp', () => {
+        const lobby = lobbies[socket.lobbyId];
+        if (!lobby) return;
+        const p = lobby.players[socket.id];
+        if (p) p.isWarping = true;
     });
 
     socket.on('requestWarp', async () => {
