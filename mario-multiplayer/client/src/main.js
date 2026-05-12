@@ -1706,6 +1706,11 @@ function handleInitMap(mapData) {
       player.levelFinished = false;
       player.isAnimating = false;
       player.dead = false; // Reset death state on level reset
+      player.isAnimatingDeath = false;
+      if (player.body) {
+        player.body.enable = true;
+        player.body.setAllowGravity(true);
+      }
       player.alpha = 1;
       player.clearTint();
       player.invincible = false;
@@ -1905,6 +1910,12 @@ function create() {
       otherPlayer.targetX = playerInfo.x;
       otherPlayer.targetY = playerInfo.y;
       otherPlayer.flipX = playerInfo.flipX;
+      if (!playerInfo.dead && otherPlayer.dead) {
+        otherPlayer.isAnimatingDeath = false;
+        if (otherPlayer.body) {
+          otherPlayer.body.enable = true;
+        }
+      }
       otherPlayer.dead = playerInfo.dead;
       otherPlayer.invulnTimer = playerInfo.invulnTimer;
       
@@ -1932,6 +1943,9 @@ function create() {
       }
 
       if (playerInfo.dead) {
+        if (!otherPlayer.dead) {
+          playDeathAnimation(this, otherPlayer);
+        }
         otherPlayer.anims.play(getAnimKey('die', playerInfo.state, skin, playerInfo.id), true);
       } else if (playerInfo.anim) {
         const action = playerInfo.anim.split('_').pop();
@@ -1950,6 +1964,13 @@ function create() {
         applyPlayerState(player, playerInfo.state);
       }
       player.invincible = playerInfo.invincible;
+      if (!playerInfo.dead && player.dead) {
+        player.isAnimatingDeath = false;
+        if (player.body) {
+          player.body.enable = true;
+          player.body.setAllowGravity(true);
+        }
+      }
       player.dead = playerInfo.dead;
       player.invulnTimer = playerInfo.invulnTimer;
       player.invulnTimer = playerInfo.invulnTimer;
@@ -1980,9 +2001,8 @@ function create() {
         if (bgm) bgm.stop();
         playSound(this, 'death');
         currentMusicKey = null;
+        playDeathAnimation(this, player);
       }
-
-
 
       player.oldDead = player.dead;
     }
@@ -2632,6 +2652,7 @@ function addPlayer(scene, playerInfo) {
   player = scene.physics.add.sprite(x, y, textureKey);
   player.setScale(4);
   player.setCollideWorldBounds(true);
+  player.skin = selectedSkin;
   player.skinData = sData;
   applyPlayerState(player, playerInfo.state || 0);
 
@@ -2667,6 +2688,7 @@ function addOtherPlayers(scene, playerInfo) {
 
   const otherPlayer = scene.physics.add.sprite(playerInfo.x, playerInfo.y, textureKey).setScale(4);
   otherPlayer.id = playerInfo.id;
+  otherPlayer.skin = skin;
   otherPlayer.skinData = playerInfo.skinData;
   otherPlayer.username = playerInfo.username || 'Guest';
   otherPlayer.targetX = playerInfo.x;
@@ -2726,7 +2748,7 @@ function update(time, delta) {
   if (shootTimer > 0) shootTimer -= delta;
 
   otherPlayers.getChildren().forEach((otherPlayer) => {
-    if (otherPlayer.targetX !== undefined && otherPlayer.targetY !== undefined) {
+    if (otherPlayer.targetX !== undefined && otherPlayer.targetY !== undefined && !otherPlayer.isAnimatingDeath) {
       const lerpFactor = 0.4; // Increased from 0.15 to make movement feel more direct and less "floaty"
       const newX = Phaser.Math.Linear(otherPlayer.x, otherPlayer.targetX, lerpFactor);
       const newY = Phaser.Math.Linear(otherPlayer.y, otherPlayer.targetY, lerpFactor);
@@ -2849,12 +2871,17 @@ function update(time, delta) {
         return;
       }
 
-    if (player.dead || player.levelFinished || player.isAnimating || player.isRestarting) {
+    if (player.dead || player.levelFinished || player.isAnimating || player.isRestarting || player.isAnimatingDeath) {
       if (player.dead) {
-        player.anims.play(getAnimKey('die', state, selectedSkin), true);
+        if (!player.isAnimatingDeath) {
+          playDeathAnimation(this, player);
+        }
         player.setCollideWorldBounds(false); // Allow falling off screen
-        player.setVelocityX(0);
-        player.setAccelerationX(0);
+        
+        if (!player.isAnimatingDeath) {
+          player.setVelocityX(0);
+          player.setAccelerationX(0);
+        }
 
         // Spectator Mode Logic
         if (!isSinglePlayer) {
@@ -3118,6 +3145,58 @@ function update(time, delta) {
       playMusic(this, normalMusic);
     }
   }
+}
+function playDeathAnimation(scene, sprite) {
+  if (sprite.isAnimatingDeath) return;
+  sprite.isAnimatingDeath = true;
+
+  // Ensure 'die' animation is playing
+  const skin = sprite.skin || (sprite === player ? selectedSkin : 'mario');
+  sprite.anims.play(getAnimKey('die', sprite.state || 0, skin, sprite.id), true);
+  
+  if (sprite.body) {
+    sprite.body.setVelocity(0, 0);
+    sprite.body.setAcceleration(0, 0);
+    sprite.body.setAllowGravity(false);
+    sprite.body.enable = false;
+  }
+
+  // If off-screen (pit death), snap to bottom of screen so animation is visible
+  if (scene.physics.world && scene.physics.world.bounds) {
+      const mapHeight = scene.physics.world.bounds.height - 500;
+      if (sprite.y > mapHeight) {
+          sprite.y = mapHeight;
+      }
+  }
+
+  // Mario death sequence: 
+  // 1. Freeze for 0.5s
+  // 2. Jump up
+  // 3. Fall down
+  scene.tweens.add({
+    targets: sprite,
+    y: sprite.y,
+    duration: 500,
+    onComplete: () => {
+      if (!sprite || !sprite.active) return;
+      const startY = sprite.y;
+      scene.tweens.add({
+        targets: sprite,
+        y: startY - 150,
+        duration: 400,
+        ease: 'Cubic.easeOut',
+        onComplete: () => {
+          if (!sprite || !sprite.active) return;
+          scene.tweens.add({
+            targets: sprite,
+            y: startY + 1500,
+            duration: 1000,
+            ease: 'Cubic.easeIn'
+          });
+        }
+      });
+    }
+  });
 }
 
 function playPipeEnterAnimation(scene, sprite, pipeCenterX, tx, ty, type) {

@@ -807,7 +807,6 @@ function PlayerDie(lobby, pId) {
 
     p.dead = true;
     p.anim = 'die';
-    p.vy = -1000; // Small hop up
     io.to(`${lobby.id}_${p.levelId}`).emit('playerMoved', p);
 
     if (lobby.mode === 'Singleplayer') {
