@@ -703,8 +703,8 @@ setInterval(() => {
                     }
                 }
             }
-        } else {
-            // Original Star Power logic for Co-op (just push/hurt with star)
+        } else if (lobby.mode !== 'Co-op') {
+            // Star Power logic for non-coop modes (just push/hurt with star)
             Object.keys(lobby.players).forEach(idA => {
                 const playerA = lobby.players[idA];
                 if (!playerA.invincible || playerA.dead) return;
