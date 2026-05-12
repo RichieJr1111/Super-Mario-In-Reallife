@@ -1682,6 +1682,9 @@ function handleInitMap(mapData) {
 
     // Reset player state if it exists
     if (player) {
+      // KILL STALE TWEENS to prevent position snap-back after warp
+      this.tweens.killTweensOf(player);
+
       player.x = mapData.spawnX;
       player.y = mapData.spawnY;
       player.warping = false;
@@ -1738,7 +1741,10 @@ function handleInitMap(mapData) {
       }
 
       if (playerCollider) this.physics.world.removeCollider(playerCollider);
-      playerCollider = this.physics.add.collider(player, layer, handleTileCollision, null, this);
+      // IGNORE COLLISIONS while animating (pipe entry/exit) to prevent physics ejection glitches
+      playerCollider = this.physics.add.collider(player, layer, handleTileCollision, (p, t) => {
+        return !p.isAnimating;
+      }, this);
 
       // Set position immediately for warp/spawn to avoid race conditions in animations
       if (mapData.spawnX !== undefined && mapData.spawnY !== undefined) {
@@ -2834,7 +2840,14 @@ function update(time, delta) {
       socket.emit('requestRestart');
     }
 
-    const state = player.state || 0;
+      const state = player.state;
+      
+      // SKIP INPUT if animating (pipe/flag)
+      if (player.isAnimating) {
+        player.setAccelerationX(0);
+        player.body.setVelocityX(0); // Optional: freeze horizontal movement completely
+        return;
+      }
 
     if (player.dead || player.levelFinished || player.isAnimating || player.isRestarting) {
       if (player.dead) {
@@ -3039,7 +3052,7 @@ function update(time, delta) {
             const warpInfo = currentWarps[warpCoords];
             if (warpInfo) {
               const pipeCenterX = (tile.index === 94) ? (tile.x * 64 + 64) : (tile.x * 64);
-              playPipeEnterAnimation(this, player, pipeCenterX, warpInfo.warpType || 'pipe-down');
+              playPipeEnterAnimation(this, player, pipeCenterX, tx, ty, warpInfo.warpType || 'pipe-down');
             }
           }
         }
@@ -3107,7 +3120,7 @@ function update(time, delta) {
   }
 }
 
-function playPipeEnterAnimation(scene, sprite, pipeCenterX, type) {
+function playPipeEnterAnimation(scene, sprite, pipeCenterX, tx, ty, type) {
   if (!sprite || !sprite.body || sprite.isAnimating) return;
   playSound(scene, 'pipepowerdown');
   sprite.isAnimating = true;
@@ -3127,7 +3140,8 @@ function playPipeEnterAnimation(scene, sprite, pipeCenterX, type) {
     duration: 800,
     ease: 'Power1',
     onComplete: () => {
-      socket.emit('requestWarp');
+      // Send tx and ty to ensure server looks up the warp at the CORRECT tile
+      socket.emit('requestWarp', { tx, ty });
       sprite.isAnimating = false;
       sprite.warping = false;
       sprite.setDepth(5);

@@ -1773,7 +1773,7 @@ io.on('connection', (socket) => {
         if (p) p.isWarping = true;
     });
 
-    socket.on('requestWarp', async () => {
+    socket.on('requestWarp', async (data) => {
         const pId = socket.id;
         const lobby = lobbies[socket.lobbyId];
         if (!lobby) return;
@@ -1781,9 +1781,16 @@ io.on('connection', (socket) => {
         const p = lobby.players[pId];
         if (!p || p.dead) return;
 
-        const tx = Math.floor(p.x / TILE_SIZE);
-        const feetY = p.y + (p.state === 0 ? 32 : 64);
-        const ty = Math.floor((feetY + 10) / TILE_SIZE);
+        // Use client-provided coordinates if available, otherwise fallback to current position
+        let tx, ty;
+        if (data && data.tx !== undefined && data.ty !== undefined) {
+            tx = data.tx;
+            ty = data.ty;
+        } else {
+            tx = Math.floor(p.x / TILE_SIZE);
+            const feetY = p.y + (p.state === 0 ? 32 : 64);
+            ty = Math.floor((feetY + 10) / TILE_SIZE);
+        }
 
         const warpCoords = `${tx},${ty}`;
         const warpInfo = MAPS[p.levelId].warps[warpCoords];
