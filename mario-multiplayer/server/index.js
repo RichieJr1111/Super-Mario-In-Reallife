@@ -1815,7 +1815,7 @@ io.on('connection', (socket) => {
         // 1. Mode is Singleplayer or Speedrun or Co-op
         // 2. OR the requester is the lobby host
         const isHost = lobby.host === socket.id;
-        const canRestart = (lobby.mode === 'Singleplayer' || lobby.mode === 'Speedrun' || lobby.mode === 'Co-op' || isHost);
+        const canRestart = (lobby.mode === 'Singleplayer' || lobby.mode === 'Speedrun' || lobby.mode === 'Co-op' || isHost) && !lobby.flagHit;
         
         if (!canRestart) {
             // Explicitly notify the client that restart was denied so they don't stay frozen
