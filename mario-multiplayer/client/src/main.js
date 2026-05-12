@@ -375,7 +375,9 @@ function initSocket() {
     // Enable/disable based on host status
     const settings = ['lobby-name-setting', 'lobby-map-select', 'lobby-mode-setting', 'lobby-max-players'];
     settings.forEach(id => {
-      document.getElementById(id).disabled = !isHost;
+      let disabled = !isHost;
+      if (id === 'lobby-max-players' && lobby.mode === 'Singleplayer') disabled = true;
+      document.getElementById(id).disabled = disabled;
     });
 
     document.getElementById('btn-start-match').style.display = isHost ? 'block' : 'none';
@@ -2819,8 +2821,8 @@ function update(time, delta) {
                        settingsModal.classList.contains('active') ||
                        chromaModal.classList.contains('active');
 
-    // Quick Restart (R key) - Allowed even when dead or animating
-    if (isActionJustDown('restart')) {
+    // Quick Restart (R key) - Allowed even when dead or animating (ONLY in Singleplayer)
+    if (isActionJustDown('restart') && isSinglePlayer) {
       if (player) {
         player.setVelocity(0, 0);
         player.setAcceleration(0, 0);

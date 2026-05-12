@@ -213,7 +213,7 @@ function createLobby(id, name = 'Room', mode = 'Co-op', hostId = null) {
         name,
         mode,
         host: hostId,
-        maxPlayers: 4,
+        maxPlayers: (mode === 'Singleplayer') ? 1 : 4,
         status: 'waiting', // 'waiting' or 'playing'
         players: {},
         activeItems: {},
@@ -1396,6 +1396,7 @@ io.on('connection', (socket) => {
         if (name) lobby.name = name;
         if (mode) lobby.mode = mode;
         if (maxPlayers) lobby.maxPlayers = parseInt(maxPlayers);
+        if (lobby.mode === 'Singleplayer') lobby.maxPlayers = 1;
         if (map) lobby.currentLevel = map;
 
         io.to(lobby.id).emit('lobbyUpdate', {
